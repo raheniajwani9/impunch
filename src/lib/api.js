@@ -11,7 +11,7 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
 }
 
-const API_URL = import.meta.env.VITE_APPS_SCRIPT_URL
+const API_URL = '/apps-script/';
 
 function runScript(fnName, ...args) {
   const url = `${API_URL}?fn=${encodeURIComponent(fnName)}&args=${encodeURIComponent(JSON.stringify(args))}`
