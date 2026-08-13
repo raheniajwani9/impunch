@@ -1,3 +1,4 @@
+// lib/api.js
 const SESSION_KEY = 'impunch_session'
 
 export function getSession() {
@@ -11,33 +12,36 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
 }
 
-const API_URL = '/apps-script/';
-
 function runScript(fnName, ...args) {
-  const url = `${API_URL}?fn=${encodeURIComponent(fnName)}&args=${encodeURIComponent(JSON.stringify(args))}`
-
-  return fetch(url)
-    .then((res) => res.text())
-    .then((text) => {
-      if (text.trim().startsWith('<')) {
-        throw new Error(
-          'Server returned a webpage instead of data — the Apps Script deployment likely ' +
-          'needs a new version deployed, or API_URL is wrong.'
-        )
-      }
-      let data
-      try {
-        data = JSON.parse(text)
-      } catch {
-        throw new Error('Server returned invalid data.')
-      }
-      if (!data) throw new Error('Server returned an empty response. Try again.')
-      if (!data.success) throw new Error(data.error || 'Request failed')
-      return data
-    })
-    .catch((err) => {
-      throw err instanceof Error ? err : new Error('Network error')
-    })
+  return new Promise((resolve, reject) => {
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler((res) => {
+          // If the backend returns null/undefined for status, resolve with default object
+          if (res === null || res === undefined) {
+            if (fnName === 'getStatus') {
+              resolve({ dutyStatus: 'punched_out', punchedAt: null });
+            } else {
+              resolve({});
+            }
+          } else if (res && res.error) {
+            reject(new Error(res.error));
+          } else {
+            resolve(res);
+          }
+        })
+        .withFailureHandler((err) => {
+          if (fnName === 'getStatus') {
+            // Recover gracefully on network/auth failure
+            resolve({ dutyStatus: 'punched_out', punchedAt: null });
+          } else {
+            reject(new Error(err.message || 'Script execution failed.'));
+          }
+        })[fnName](...args);
+    } else {
+      reject(new Error('google.script.run is not available.'));
+    }
+  });
 }
 
 export const api = {
