@@ -20,24 +20,48 @@ export default function App() {
   const [dutyStatus, setDutyStatus] = useState('punched_out')
   const [punchedAt, setPunchedAt] = useState(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [isDark, setIsDark] = useState(true)
   const [toasts, setToasts] = useState([])
+
+  const [isDark, setIsDark] = useState(() => {
+    const savedTheme = localStorage.getItem('impunch_theme')
+    if (savedTheme !== null) {
+      return savedTheme === 'dark'
+    }
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    const body = document.body
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]')
+
+    if (isDark) {
+      root.classList.add('dark')
+      body?.classList.add('dark')
+      localStorage.setItem('impunch_theme', 'dark')
+      themeColorMeta?.setAttribute('content', '#0E1217')
+    } else {
+      root.classList.remove('dark')
+      body?.classList.remove('dark')
+      localStorage.setItem('impunch_theme', 'light')
+      themeColorMeta?.setAttribute('content', '#FDF5EE') // Salt background header
+    }
+  }, [isDark])
 
   const addToast = useCallback((tone, message) => {
     const id = Date.now() + Math.random()
     setToasts((t) => [...t, { id, tone, message }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000)
   }, [])
-  const dismissToast = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), [])
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark)
-  }, [isDark])
+  const dismissToast = useCallback((id) => {
+    setToasts((t) => t.filter((x) => x.id !== id))
+  }, [])
 
   useEffect(() => {
     function handleOnline() {
       setIsOnline(true)
-      flushOfflineQueue(addToast)
+      if (typeof flushOfflineQueue === 'function') flushOfflineQueue(addToast)
     }
     function handleOffline() {
       setIsOnline(false)
@@ -62,18 +86,17 @@ export default function App() {
   async function loadDashboard(session) {
     setAppState(APP_STATE.INITIALIZING)
     try {
-      const status = await api.getStatus()
+      const status = await api.getStatus().catch(() => ({ dutyStatus: 'punched_out', punchedAt: null }))
       setUser({ email: session.email })
-      setDutyStatus(status.dutyStatus || 'punched_out')
-      setPunchedAt(status.punchedAt || null)
+      setDutyStatus(status?.dutyStatus || 'punched_out')
+      setPunchedAt(status?.punchedAt || null)
       setAppState(APP_STATE.READY)
     } catch (err) {
-      console.error('loadDashboard failed:', err)
-      if (String(err.message || '').toLowerCase().includes('session')) {
+      if (String(err?.message || '').toLowerCase().includes('session')) {
         clearSession()
         setAppState(APP_STATE.AUTH)
       } else {
-        addToast('error', err.message || 'Could not load your dashboard.')
+        addToast('error', err?.message || 'Could not load your dashboard.')
         setAppState(APP_STATE.AUTH)
       }
     }
@@ -85,15 +108,24 @@ export default function App() {
   }
 
   function handleSignOut() {
+    clearSession()
     setPage('dashboard')
     setAppState(APP_STATE.AUTH)
+  }
+
+  const handleToggleTheme = () => {
+    setIsDark((prev) => !prev)
   }
 
   const isReady = appState === APP_STATE.READY
 
   return (
-    <>
-      {!isOnline && <Banner tone="offline">Offline Mode Active — punches will queue until signal returns.</Banner>}
+    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
+      {!isOnline && (
+        <Banner tone="offline">
+          Offline Mode Active — punches will queue until signal returns.
+        </Banner>
+      )}
 
       {appState === APP_STATE.CHECKING_SESSION && null}
       {appState === APP_STATE.AUTH && <Login onAuthenticated={handleAuthenticated} />}
@@ -106,15 +138,17 @@ export default function App() {
             initialDutyStatus={dutyStatus}
             initialPunchedAt={punchedAt}
             addToast={addToast}
+            onLogout={handleSignOut}
           />
         </div>
       )}
+
       {isReady && (
         <div style={{ display: page === 'profile' ? 'block' : 'none' }}>
           <Profile
             user={user}
             isDark={isDark}
-            onToggleTheme={() => setIsDark((d) => !d)}
+            onToggleTheme={handleToggleTheme}
             onSignOut={handleSignOut}
           />
         </div>
@@ -123,6 +157,6 @@ export default function App() {
       {isReady && <NavBar page={page} onNavigate={setPage} />}
 
       <ToastStack toasts={toasts} dismiss={dismissToast} />
-    </>
+    </div>
   )
 }

@@ -1,3 +1,5 @@
+import React from 'react'
+
 const TICK_COUNT = 24
 
 export default function PunchGauge({ state, onPress, label }) {
@@ -6,7 +8,7 @@ export default function PunchGauge({ state, onPress, label }) {
   const isOn = state === 'on'
 
   return (
-    <div className="relative w-48 h-48 flex items-center justify-center select-none">
+    <div className="relative w-48 h-48 flex items-center justify-center select-none my-2">
       <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full">
         {ticks.map((_, i) => {
           const angle = (i / TICK_COUNT) * 360
@@ -22,7 +24,7 @@ export default function PunchGauge({ state, onPress, label }) {
           )
         })}
         {isLocating && (
-          <circle cx="100" cy="100" r="55" fill="none" stroke="#FF5200" strokeWidth="2" className="animate-radar" />
+          <circle cx="100" cy="100" r="55" fill="none" stroke="#FF5200" strokeWidth="2" className="animate-ping" />
         )}
         <circle cx="100" cy="100" r="72" fill="none" stroke="#0050FF" strokeWidth="1.5" opacity="0.35" />
       </svg>
@@ -31,21 +33,28 @@ export default function PunchGauge({ state, onPress, label }) {
         onClick={onPress}
         disabled={isLocating}
         aria-label={label}
-        className={`btn-press tap-target relative z-10 w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 text-white shadow-xl transition-colors duration-300 ${
+        className={`relative z-10 w-36 h-36 rounded-full flex flex-col items-center justify-center gap-1 text-white shadow-xl transition-transform active:scale-95 duration-300 ${
           isLocating
-            ? 'bg-white dark:bg-ink border-2 border-accent-500/50 cursor-wait'
+            ? 'bg-slate-100 dark:bg-[#181E25] border-2 border-[#FF5200] cursor-wait text-slate-800 dark:text-slate-200'
             : isOn
-            ? 'bg-red-500 shadow-red-500/25'
-            : 'bg-emerald-500 shadow-emerald-500/25'
+            ? 'bg-gradient-to-b from-rose-500 to-red-600 shadow-red-500/25 hover:from-rose-600 hover:to-red-700'
+            : 'bg-gradient-to-b from-[#0050FF] to-[#003ACC] shadow-[#0050FF]/30 hover:from-[#0042D9] hover:to-[#0033B3]'
         }`}
       >
         {isLocating ? (
           <>
-            <span className="w-2 h-2 rounded-full bg-accent-500 animate-pulse" />
-            <span className="text-[11px] eyebrow text-accent-600 dark:text-accent-400 leading-tight px-4 text-center">Acquiring GPS Lock</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FF5200] animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF5200] leading-tight px-4 text-center">
+              Acquiring GPS
+            </span>
           </>
         ) : (
-          <span className="font-bold text-base">{isOn ? 'Punch Out' : 'Punch In'}</span>
+          <>
+            <span className="font-black text-lg tracking-wide">{isOn ? 'PUNCH OUT' : 'PUNCH IN'}</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest opacity-80">
+              {isOn ? 'End Shift' : 'Start Shift'}
+            </span>
+          </>
         )}
       </button>
     </div>
