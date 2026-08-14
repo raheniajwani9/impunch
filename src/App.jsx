@@ -56,7 +56,9 @@ export default function App() {
   useEffect(() => {
     function handleOnline() {
       setIsOnline(true)
-      if (typeof flushOfflineQueue === 'function') flushOfflineQueue(addToast)
+      if (typeof flushOfflineQueue === 'function') {
+        flushOfflineQueue(addToast)
+      }
     }
     function handleOffline() {
       setIsOnline(false)
@@ -82,7 +84,10 @@ export default function App() {
     setAppState(APP_STATE.INITIALIZING)
     try {
       const status = await api.getStatus().catch(() => ({ dutyStatus: 'punched_out', punchedAt: null }))
-      setUser({ email: session.email })
+      
+      const userEmail = session?.user?.email || session?.email || ''
+      setUser({ email: userEmail, user: { email: userEmail } })
+      
       setDutyStatus(status?.dutyStatus || 'punched_out')
       setPunchedAt(status?.punchedAt || null)
       setAppState(APP_STATE.READY)
@@ -137,7 +142,7 @@ export default function App() {
           </div>
 
           <div style={{ display: page === 'history' ? 'block' : 'none' }}>
-            <History />
+            <History onLogout={handleSignOut} />
           </div>
 
           <div style={{ display: page === 'profile' ? 'block' : 'none' }}>
