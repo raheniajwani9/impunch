@@ -10,6 +10,15 @@ function GaugeIcon({ active }) {
   )
 }
 
+function HistoryIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M12 8v4l3 3" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="9" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" />
+    </svg>
+  )
+}
+
 function BadgeIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -23,6 +32,7 @@ function BadgeIcon({ active }) {
 export default function NavBar({ page, onNavigate }) {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', Icon: GaugeIcon },
+    { id: 'history', label: 'History', Icon: HistoryIcon },
     { id: 'profile', label: 'Profile', Icon: BadgeIcon },
   ]
 
