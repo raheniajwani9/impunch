@@ -1,4 +1,5 @@
 const SESSION_KEY = 'impunch_session'
+
 export function getSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
@@ -26,6 +27,7 @@ export function clearSession() {
 }
 
 async function runBackendFunction(fnName, args = []) {
+  // If running inside Google Apps Script iframe environment
   if (
     typeof window !== 'undefined' &&
     window.google &&
@@ -48,6 +50,7 @@ async function runBackendFunction(fnName, args = []) {
     })
   }
 
+  // Running in local dev server or external web app
   const scriptUrl = import.meta.env.VITE_APPS_SCRIPT_URL || ''
   if (!scriptUrl) {
     throw new Error('Apps Script Web App URL is not defined in environment variables.')
@@ -57,7 +60,7 @@ async function runBackendFunction(fnName, args = []) {
     JSON.stringify(args)
   )}`
 
-  const response = await fetch(url)
+  const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok) {
     throw new Error(`HTTP Error ${response.status}: Failed to reach backend API.`)
   }
@@ -90,7 +93,7 @@ export const api = {
   async getStatus() {
     const session = getSession()
     const token = session?.token || ''
-    
+
     try {
       const res = await runBackendFunction('getStatus', [token])
       return {
@@ -103,21 +106,27 @@ export const api = {
     }
   },
 
-  async getRecentLogs(limit = 50) {
+ async getRecentLogs(page = 1, pageSize = 10) {
     const session = getSession()
     const token = session?.token || ''
 
     try {
-      const res = await runBackendFunction('getRecentLogs', [token, limit])
-      console.log('getRecentLogs response:', res)
+      // Pass token, page, and pageSize to the backend function
+      const res = await runBackendFunction('getRecentLogs', [token, page, pageSize])
+      console.log('Backend response raw:', res)
 
-      if (Array.isArray(res)) return res
-      if (res && Array.isArray(res.logs)) return res.logs
+      // Return the full object so History.jsx gets logs, totalPages, and totalRecords
       if (res && typeof res === 'object') {
-        const foundArray = Object.values(res).find((v) => Array.isArray(v))
-        if (foundArray) return foundArray
+        return {
+          success: res.success !== false,
+          logs: res.logs || (Array.isArray(res) ? res : []),
+          totalPages: res.totalPages || 1,
+          totalRecords: res.totalRecords || 0,
+          currentPage: res.currentPage || page
+        }
       }
-      return []
+
+      return { success: true, logs: [], totalPages: 1, totalRecords: 0, currentPage: page }
     } catch (err) {
       console.error('getRecentLogs API error:', err)
       throw err

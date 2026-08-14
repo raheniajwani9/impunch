@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { api, clearSession, getSession } from '../lib/api'
 import PunchGauge from '../components/PunchGauge'
+import Header from '../components/Header'
 
 export function DashboardSkeleton() {
   return (
@@ -33,6 +34,7 @@ export default function Dashboard({ onLogout }) {
   const [error, setError] = useState(null)
 
   const session = getSession()
+  const userEmail = session?.user?.email || session?.email
 
   useEffect(() => {
     loadDashboardData()
@@ -113,33 +115,12 @@ export default function Dashboard({ onLogout }) {
   if (loading) return <DashboardSkeleton />
 
   return (
-    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-6 font-sans transition-colors pb-24">
-      {/* Header */}
-      <header className="flex justify-between items-center pb-4 border-b border-[#0050FF]/15 dark:border-[#28313D]">
-        <div className="flex items-center space-x-2.5">
-          <div className="w-9 h-9 rounded-xl bg-[#0050FF] flex items-center justify-center font-black text-white text-base shadow-md shadow-[#0050FF]/25">
-            IM
-          </div>
-          <div>
-            <h1 className="text-lg font-black tracking-wide text-[#0050FF] leading-tight">
-              INSTAMART <span className="text-[#FF5200]">PUNCH</span>
-            </h1>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-              {session?.user?.email || 'Field Agent'}
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={handleSignOut}
-          className="text-xs bg-[#FFFFFF] dark:bg-[#181E25] hover:bg-slate-50 dark:hover:bg-[#28313D] text-slate-700 dark:text-slate-200 font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-[#28313D] transition active:scale-95 shadow-sm"
-        >
-          Sign Out
-        </button>
-      </header>
+    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 flex flex-col justify-between font-sans transition-colors pb-24">
+      {/* Shared Reusable Header */}
+      <Header userEmail={userEmail} onLogout={handleSignOut} />
 
       {/* Main Content */}
-      <main className="my-auto py-6 max-w-md w-full mx-auto text-center space-y-6">
+      <main className="my-auto py-6 max-w-md w-full mx-auto text-center space-y-6 px-4">
         {error && (
           <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl text-red-600 dark:text-red-400 text-xs font-semibold flex items-center space-x-2 justify-center shadow-sm">
             <span>⚠️</span>
@@ -178,11 +159,6 @@ export default function Dashboard({ onLogout }) {
           )}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="text-center text-[10px] text-slate-500 dark:text-slate-400 pt-4 border-t border-[#0050FF]/15 dark:border-[#28313D] font-semibold tracking-wider">
-        SWIGGY INSTAMART • FIELD OPERATIONS
-      </footer>
     </div>
   )
 }
