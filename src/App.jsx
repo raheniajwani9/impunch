@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import Login from './screens/Login'
-import Dashboard, { DashboardSkeleton, flushOfflineQueue } from './screens/Dashboard'
+import Dashboard, { DashboardSkeleton } from './screens/Dashboard'
 import Profile from './screens/Profile'
+import History from './screens/History' 
 import NavBar from './components/NavBar'
 import { api, getSession, clearSession } from './lib/api'
 import { Banner, ToastStack } from './components/ui'
@@ -24,27 +25,21 @@ export default function App() {
 
   const [isDark, setIsDark] = useState(() => {
     const savedTheme = localStorage.getItem('impunch_theme')
-    if (savedTheme !== null) {
-      return savedTheme === 'dark'
-    }
+    if (savedTheme !== null) return savedTheme === 'dark'
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
   })
 
   useEffect(() => {
     const root = document.documentElement
     const body = document.body
-    const themeColorMeta = document.querySelector('meta[name="theme-color"]')
-
     if (isDark) {
       root.classList.add('dark')
       body?.classList.add('dark')
       localStorage.setItem('impunch_theme', 'dark')
-      themeColorMeta?.setAttribute('content', '#0E1217')
     } else {
       root.classList.remove('dark')
       body?.classList.remove('dark')
       localStorage.setItem('impunch_theme', 'light')
-      themeColorMeta?.setAttribute('content', '#FDF5EE') // Salt background header
     }
   }, [isDark])
 
@@ -113,9 +108,7 @@ export default function App() {
     setAppState(APP_STATE.AUTH)
   }
 
-  const handleToggleTheme = () => {
-    setIsDark((prev) => !prev)
-  }
+  const handleToggleTheme = () => setIsDark((prev) => !prev)
 
   const isReady = appState === APP_STATE.READY
 
@@ -132,29 +125,33 @@ export default function App() {
       {appState === APP_STATE.INITIALIZING && <DashboardSkeleton />}
 
       {isReady && (
-        <div style={{ display: page === 'dashboard' ? 'block' : 'none' }}>
-          <Dashboard
-            user={user}
-            initialDutyStatus={dutyStatus}
-            initialPunchedAt={punchedAt}
-            addToast={addToast}
-            onLogout={handleSignOut}
-          />
-        </div>
-      )}
+        <>
+          <div style={{ display: page === 'dashboard' ? 'block' : 'none' }}>
+            <Dashboard
+              user={user}
+              initialDutyStatus={dutyStatus}
+              initialPunchedAt={punchedAt}
+              addToast={addToast}
+              onLogout={handleSignOut}
+            />
+          </div>
 
-      {isReady && (
-        <div style={{ display: page === 'profile' ? 'block' : 'none' }}>
-          <Profile
-            user={user}
-            isDark={isDark}
-            onToggleTheme={handleToggleTheme}
-            onSignOut={handleSignOut}
-          />
-        </div>
-      )}
+          <div style={{ display: page === 'history' ? 'block' : 'none' }}>
+            <History />
+          </div>
 
-      {isReady && <NavBar page={page} onNavigate={setPage} />}
+          <div style={{ display: page === 'profile' ? 'block' : 'none' }}>
+            <Profile
+              user={user}
+              isDark={isDark}
+              onToggleTheme={handleToggleTheme}
+              onSignOut={handleSignOut}
+            />
+          </div>
+
+          <NavBar page={page} onNavigate={setPage} />
+        </>
+      )}
 
       <ToastStack toasts={toasts} dismiss={dismissToast} />
     </div>
