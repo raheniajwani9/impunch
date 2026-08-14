@@ -2,10 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { api, clearSession, getSession } from '../lib/api'
 import PunchGauge from '../components/PunchGauge'
 
-export async function flushOfflineQueue() {
-  console.log('Offline queue flush checked')
-}
-
 export function DashboardSkeleton() {
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-800 flex flex-col justify-between p-4 sm:p-6 animate-pulse transition-colors">
@@ -23,7 +19,6 @@ export function DashboardSkeleton() {
           <div className="w-48 h-48 bg-slate-200 dark:bg-[#28313D] rounded-full"></div>
           <div className="h-3 w-36 bg-slate-200 dark:bg-[#28313D] rounded-md"></div>
         </div>
-        <div className="bg-[#FFFFFF] dark:bg-[#181E25] border border-[#0050FF]/10 dark:border-[#28313D] rounded-2xl p-5 h-44 shadow-sm"></div>
       </div>
 
       <footer className="h-3 w-40 bg-slate-300/40 rounded mx-auto"></footer>
@@ -33,7 +28,6 @@ export function DashboardSkeleton() {
 
 export default function Dashboard({ onLogout }) {
   const [status, setStatus] = useState({ dutyStatus: 'punched_out', punchedAt: null })
-  const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -62,20 +56,9 @@ export default function Dashboard({ onLogout }) {
       } else {
         setStatus({ dutyStatus: 'punched_out', punchedAt: null })
       }
-
-      const logsRes = await api.getRecentLogs(5).catch((err) => {
-        console.warn('getRecentLogs failed, using fallback:', err)
-        return { logs: [] }
-      })
-
-      if (logsRes && Array.isArray(logsRes.logs)) {
-        setLogs(logsRes.logs)
-      } else {
-        setLogs([])
-      }
     } catch (err) {
       console.error('Dashboard load error:', err)
-      setError('Failed to refresh data. Please try again.')
+      setError('Failed to refresh status. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -130,7 +113,7 @@ export default function Dashboard({ onLogout }) {
   if (loading) return <DashboardSkeleton />
 
   return (
-    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-6 font-sans transition-colors">
+    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-6 font-sans transition-colors pb-24">
       {/* Header */}
       <header className="flex justify-between items-center pb-4 border-b border-[#0050FF]/15 dark:border-[#28313D]">
         <div className="flex items-center space-x-2.5">
@@ -192,51 +175,6 @@ export default function Dashboard({ onLogout }) {
                 {new Date(status.punchedAt).toLocaleTimeString()}
               </span>
             </p>
-          )}
-        </div>
-
-        {/* Activity Logs Section */}
-        <div className="bg-[#FFFFFF] dark:bg-[#181E25] border border-[#0050FF]/10 dark:border-[#28313D] rounded-2xl p-4 text-left shadow-lg">
-          <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-100 dark:border-[#28313D]">
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Shift Activity Logs
-            </h2>
-            <span className="text-[10px] bg-[#0050FF]/10 text-[#0050FF] font-black px-2 py-0.5 rounded-full">
-              Live Sync
-            </span>
-          </div>
-
-          {logs.length === 0 ? (
-            <p className="text-xs text-slate-400 dark:text-slate-500 py-2 text-center">No recent punches recorded today.</p>
-          ) : (
-            <ul className="space-y-2">
-              {logs.map((log, index) => (
-                <li
-                  key={log.id || index}
-                  className="flex justify-between items-center text-xs py-2 border-b border-slate-100 dark:border-[#28313D] last:border-0"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-black tracking-wider ${
-                        log.action === 'punch_in'
-                          ? 'bg-[#0050FF]/10 text-[#0050FF] border border-[#0050FF]/20'
-                          : 'bg-[#FF5200]/10 text-[#FF5200] border border-[#FF5200]/20'
-                      }`}
-                    >
-                      {log.action === 'punch_in' ? 'IN' : 'OUT'}
-                    </span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold truncate max-w-[180px]">
-                      {log.geofence_id && log.geofence_id !== 'OUT_OF_BOUNDS'
-                        ? log.geofence_id
-                        : 'Out of Bounds'}
-                    </span>
-                  </div>
-                  <span className="text-slate-400 text-[11px] font-mono">
-                    {log.created_at ? new Date(log.created_at).toLocaleTimeString() : '--'}
-                  </span>
-                </li>
-              ))}
-            </ul>
           )}
         </div>
       </main>
