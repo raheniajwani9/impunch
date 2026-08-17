@@ -29,13 +29,22 @@ export default function Login({ onAuthenticated }) {
     if (sub === AUTH_SUB.OTP_SENT) otpInputRef.current?.focus()
   }, [sub])
 
-  async function handleSendOtp(e) {
+ async function handleSendOtp(e) {
     e.preventDefault()
-    if (!email.trim()) return
+    const cleanEmail = email.trim().toLowerCase()
+    if (!cleanEmail) return
+    
+    const allowedDomainRegex = /^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.)?(swiggy\.in|scootsy\.com|swiggyimnet\.in)$/
+
+    if (!allowedDomainRegex.test(cleanEmail)) {
+      setError('Only Swiggy, Scootsy, or Swiggyimnet email IDs are allowed.')
+      return
+    }
+
     setSub(AUTH_SUB.LOADING_AUTH)
     setError('')
     try {
-      await api.sendOtp(email.trim())
+      await api.sendOtp(cleanEmail)
       setResendTimer(RESEND_SECONDS)
       setSub(AUTH_SUB.OTP_SENT)
     } catch (err) {
