@@ -149,15 +149,6 @@ export default function Dashboard({ onLogout, onNavigate }) {
             onPress={handlePunch}
             label={isPunchedIn ? 'Punch Out' : 'Punch In'}
           />
-
-          {status?.punchedAt && (
-            <p className="mt-4 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-              Last status update:{' '}
-              <span className="text-slate-800 dark:text-slate-200 font-bold">
-                {new Date(status.punchedAt).toLocaleTimeString()}
-              </span>
-            </p>
-          )}
         </div>
       </main>
     </div>
