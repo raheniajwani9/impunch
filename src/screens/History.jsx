@@ -208,10 +208,15 @@ export default function History({ onLogout }) {
                           })
                         : '--:--'
 
-                    const locationLabel =
-                      log.geofence_id && String(log.geofence_id).trim() !== ''
-                        ? log.geofence_id
-                        : 'Store #' + (log.pod_id || '1405040')
+                    const rawStore = log.store_name || log.geofence_id
+                    const rawCity = log.city
+
+                    let locationLabel = 'OUT_OF_BOUNDS'
+                    if (rawStore && String(rawStore).toUpperCase() !== 'OUT_OF_BOUNDS') {
+                      locationLabel = rawCity ? `${rawStore} (${rawCity})` : rawStore
+                    } else if (log.pod_id && String(log.pod_id).toUpperCase() !== 'OUT_OF_BOUNDS') {
+                      locationLabel = `Store #${log.pod_id}`
+                    }
 
                     const isViolation =
                       log.is_violation === true ||
