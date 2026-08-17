@@ -138,11 +138,15 @@ export default function App() {
               initialPunchedAt={punchedAt}
               addToast={addToast}
               onLogout={handleSignOut}
+              onNavigate={setPage}
             />
           </div>
 
           <div style={{ display: page === 'history' ? 'block' : 'none' }}>
-            <History onLogout={handleSignOut} />
+            <History 
+              onLogout={handleSignOut} 
+              onNavigate={setPage} 
+            />
           </div>
 
           <div style={{ display: page === 'profile' ? 'block' : 'none' }}>
@@ -151,6 +155,7 @@ export default function App() {
               isDark={isDark}
               onToggleTheme={handleToggleTheme}
               onSignOut={handleSignOut}
+              onNavigate={setPage}
             />
           </div>
 

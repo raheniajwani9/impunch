@@ -1,16 +1,24 @@
 import React from 'react'
+import Header from '../components/Header' 
 import { GlassCard, ThemeToggle } from '../components/ui'
 import { clearSession } from '../lib/api'
 
-export default function Profile({ user, isDark, onToggleTheme, onSignOut }) {
+export default function Profile({ user, isDark, onToggleTheme, onSignOut, onNavigate }) {
   function handleSignOut() {
     clearSession()
     onSignOut()
   }
 
   return (
-    <div className="min-h-screen px-6 pt-8 pb-28 bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
-      <div className="max-w-sm mx-auto space-y-5">
+    <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
+      {/* Header added here */}
+      <Header
+        userEmail={user?.email}
+        onLogout={handleSignOut}
+        onNavigate={onNavigate}
+      />
+
+      <div className="px-6 pt-8 pb-28 max-w-sm mx-auto space-y-5">
         {/* Profile Card */}
         <GlassCard className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-[#0050FF]/10 dark:bg-[#0050FF]/20 border border-[#0050FF]/30 flex items-center justify-center shrink-0">
@@ -36,14 +44,6 @@ export default function Profile({ user, isDark, onToggleTheme, onSignOut }) {
           </div>
           <ThemeToggle isDark={isDark} onToggle={onToggleTheme} />
         </GlassCard>
-
-        {/* Sign Out Button */}
-        <button
-          onClick={handleSignOut}
-          className="w-full h-12 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-600 dark:text-red-400 font-bold text-sm active:scale-95 transition"
-        >
-          Sign Out
-        </button>
       </div>
     </div>
   )

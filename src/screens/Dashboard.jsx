@@ -27,7 +27,8 @@ export function DashboardSkeleton() {
   )
 }
 
-export default function Dashboard({ onLogout }) {
+// 1. Accept `onNavigate` as a prop here
+export default function Dashboard({ onLogout, onNavigate }) {
   const [status, setStatus] = useState({ dutyStatus: 'punched_out', punchedAt: null })
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
@@ -116,8 +117,8 @@ export default function Dashboard({ onLogout }) {
 
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 flex flex-col justify-between font-sans transition-colors pb-24">
-      {/* Shared Reusable Header */}
-      <Header userEmail={userEmail} onLogout={handleSignOut} />
+      {/* 2. Pass `onNavigate` into Header */}
+      <Header userEmail={userEmail} onLogout={handleSignOut} onNavigate={onNavigate} />
 
       {/* Main Content */}
       <main className="my-auto py-6 max-w-md w-full mx-auto text-center space-y-6 px-4">
