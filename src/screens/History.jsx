@@ -3,7 +3,7 @@ import { GlassCard, SkeletonBox } from '../components/ui'
 import { api, clearSession, getSession } from '../lib/api'
 import Header from '../components/Header'
 
-export default function History({ onLogout }) {
+export default function History({ onLogout, onNavigate }) {
   const [logs, setLogs] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -58,20 +58,20 @@ export default function History({ onLogout }) {
     }
   }
 
-  // Group logs by Date string ("YYYY-MM-DD")
+  // Group logs by Date string ("YYYY-MM-DD") based on punch_in_time or punch_out_time
   const groupedLogs = useMemo(() => {
     if (!logs || !Array.isArray(logs) || logs.length === 0) return {}
 
     const groups = {}
 
     const sorted = [...logs].sort((a, b) => {
-      const dA = new Date(a.created_at || a.timestamp || 0)
-      const dB = new Date(b.created_at || b.timestamp || 0)
+      const dA = new Date(a.punch_in_time || a.punch_out_time || a.created_at || 0)
+      const dB = new Date(b.punch_in_time || b.punch_out_time || b.created_at || 0)
       return dB - dA
     })
 
     sorted.forEach((log) => {
-      const rawDate = log.created_at || log.timestamp || log.created || log.date
+      const rawDate = log.punch_in_time || log.punch_out_time || log.created_at || log.timestamp
       let dateObj = rawDate ? new Date(rawDate) : new Date()
 
       if (isNaN(dateObj.getTime()) && typeof rawDate === 'string') {
@@ -112,14 +112,23 @@ export default function History({ onLogout }) {
     })
   }
 
+  // Helper to safely format time display
+  function formatTime(isoString) {
+    if (!isoString) return '--:--'
+    const date = new Date(isoString)
+    return isNaN(date.getTime())
+      ? isoString
+      : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors font-sans pb-28">
-      {/* 1. Shared Reusable Header */}
-      <Header userEmail={userEmail} onLogout={handleSignOut} />
+      {/* Shared Header */}
+      <Header userEmail={userEmail} onLogout={handleSignOut} onNavigate={onNavigate} />
 
-      {/* 2. Main Page Content */}
+      {/* Main Content */}
       <main className="max-w-xl mx-auto px-4 sm:px-6 pt-6 space-y-5">
-        {/* Section Title & Refresh */}
+        {/* Title & Refresh */}
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-lg font-black tracking-wide text-[#0050FF]">
@@ -132,7 +141,7 @@ export default function History({ onLogout }) {
           <button
             onClick={() => fetchHistory(page)}
             disabled={loading}
-            className="text-xs font-bold text-[#0050FF] bg-[#0050FF]/10 hover:bg-[#0050FF]/20 px-3.5 py-2 rounded-xl border border-[#0050FF]/20 transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+            className="text-xs font-bold text-[#0050FF] bg-[#0050FF]/10 hover:bg-[#0050FF]/20 px-3.5 py-2 rounded-xl border border-[#0050FF]/20 transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
           >
             {loading ? (
               <>
@@ -151,7 +160,7 @@ export default function History({ onLogout }) {
           </div>
         )}
 
-        {/* Loading Skeletons */}
+        {/* Loading State */}
         {loading && (
           <div className="space-y-4">
             <SkeletonBox className="h-6 w-28 rounded-md" />
@@ -173,12 +182,12 @@ export default function History({ onLogout }) {
               No History Recorded
             </p>
             <p className="text-xs text-slate-400 max-w-xs mx-auto">
-              Your past punch-in and punch-out events will automatically show up here.
+              Your past shift punch-in and punch-out events will automatically show up here.
             </p>
           </GlassCard>
         )}
 
-        {/* Formatted Grouped Logs */}
+        {/* Shift History Cards */}
         {!loading &&
           Object.keys(groupedLogs).map((dateKey) => {
             const group = groupedLogs[dateKey]
@@ -191,76 +200,76 @@ export default function History({ onLogout }) {
                     {headerLabel}
                   </span>
                   <span className="text-[11px] text-slate-400 font-semibold">
-                    {group.items.length} {group.items.length === 1 ? 'event' : 'events'}
+                    {group.items.length} {group.items.length === 1 ? 'shift' : 'shifts'}
                   </span>
                 </div>
 
                 <GlassCard className="divide-y divide-slate-100 dark:divide-[#28313D] !p-0 overflow-hidden shadow-lg border border-slate-200/60 dark:border-[#28313D]">
                   {group.items.map((log, idx) => {
-                    const actionType = String(log.action || log.type || '').toLowerCase()
-                    const isPunchIn = actionType.includes('in')
-
-                    const formattedTime =
-                      log.dateObj && !isNaN(log.dateObj.getTime())
-                        ? log.dateObj.toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : '--:--'
-
-                    const rawStore = log.store_name || log.geofence_id
-                    const rawCity = log.city
-
-                    let locationLabel = 'OUT_OF_BOUNDS'
-                    if (rawStore && String(rawStore).toUpperCase() !== 'OUT_OF_BOUNDS') {
-                      locationLabel = rawCity ? `${rawStore} (${rawCity})` : rawStore
-                    } else if (log.pod_id && String(log.pod_id).toUpperCase() !== 'OUT_OF_BOUNDS') {
-                      locationLabel = `Store #${log.pod_id}`
-                    }
-
+                    const storeName = log.store_name || log.pod_id || log.geofence_id || 'OUT_OF_BOUNDS'
                     const isViolation =
                       log.is_violation === true ||
                       String(log.is_violation).toUpperCase() === 'TRUE'
 
+                    const inTimeFormatted = formatTime(log.punch_in_time)
+                    const outTimeFormatted = formatTime(log.punch_out_time)
+                    const isActive = !log.punch_out_time || String(log.punch_out_time).trim() === ''
+
                     return (
                       <div
                         key={log.id || idx}
-                        className="p-4 flex items-center justify-between text-xs hover:bg-slate-500/5 transition"
+                        className="p-4 space-y-3 hover:bg-slate-500/5 transition"
                       >
-                        <div className="flex items-center gap-3.5">
-                          <span
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs tracking-tight shrink-0 ${
-                              isPunchIn
-                                ? 'bg-[#0050FF]/10 text-[#0050FF] border border-[#0050FF]/20'
-                                : 'bg-[#FF5200]/10 text-[#FF5200] border border-[#FF5200]/20'
-                            }`}
-                          >
-                            {isPunchIn ? 'IN' : 'OUT'}
-                          </span>
-
-                          <div>
+                        {/* Header: Location & Zone Badge */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#0050FF]" />
                             <p className="text-slate-800 dark:text-slate-200 font-bold text-sm">
-                              {locationLabel}
-                            </p>
-                            <p className="text-xs text-slate-400 font-medium">
-                              {isPunchIn ? 'Shift Started' : 'Shift Ended'}
+                              {storeName}
                             </p>
                           </div>
-                        </div>
 
-                        <div className="text-right">
-                          <p className="font-mono text-sm font-bold text-slate-800 dark:text-slate-200">
-                            {formattedTime}
-                          </p>
                           {isViolation ? (
-                            <span className="inline-block text-[10px] bg-red-500/10 text-red-500 dark:text-red-400 font-bold px-2 py-0.5 rounded mt-0.5 border border-red-500/20">
+                            <span className="text-[10px] bg-red-500/10 text-red-500 dark:text-red-400 font-bold px-2 py-0.5 rounded border border-red-500/20">
                               Out of Zone
                             </span>
                           ) : (
-                            <span className="inline-block text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
-                              In zone
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20">
+                              In Zone
                             </span>
                           )}
+                        </div>
+
+                        {/* Shift Times Grid */}
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          {/* Punch In */}
+                          <div className="bg-[#0050FF]/5 dark:bg-[#0050FF]/10 p-2.5 rounded-xl border border-[#0050FF]/15">
+                            <p className="text-[10px] font-bold text-[#0050FF] uppercase tracking-wider">
+                              Punch In
+                            </p>
+                            <p className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200 mt-0.5">
+                              {inTimeFormatted}
+                            </p>
+                          </div>
+
+                          {/* Punch Out */}
+                          <div className="bg-[#FF5200]/5 dark:bg-[#FF5200]/10 p-2.5 rounded-xl border border-[#FF5200]/15">
+                            <p className="text-[10px] font-bold text-[#FF5200] uppercase tracking-wider">
+                              Punch Out
+                            </p>
+                            {isActive ? (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                                  Active (On Duty)
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-200 mt-0.5">
+                                {outTimeFormatted}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )

@@ -158,6 +158,23 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
     return item.name || item.username || item.user_name || item.email || item.user_id || 'N/A'
   }
 
+  // Safe helper to format ISO date strings into local date and time
+  const formatDateTime = (isoString) => {
+    if (!isoString) return '—'
+    const date = new Date(isoString)
+    return isNaN(date.getTime())
+      ? isoString
+      : date.toLocaleString([], {
+          month: 'numeric',
+          day: 'numeric',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        })
+  }
+
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
       <Header 
@@ -212,86 +229,87 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
         </div>
 
         {/* TAB 1: Live System Activity Logs */}
-{activeTab === 'logs' && (
-  <div className="space-y-4">
-    <div className="flex justify-between items-center">
-      <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-        Live System Punches
-      </h2>
-      <button
-        onClick={() => fetchLogs(logPage)}
-        className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all"
-      >
-        Refresh Logs
-      </button>
-    </div>
+        {activeTab === 'logs' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                Live System Punches
+              </h2>
+              <button
+                onClick={() => fetchLogs(logPage)}
+                className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+              >
+                Refresh Logs
+              </button>
+            </div>
 
-    <div className="bg-white dark:bg-[#161B22] border border-slate-200 dark:border-[#28313D] rounded-xl overflow-hidden shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-[#28313D] text-slate-500 dark:text-slate-400">
-            <tr>
-              <th className="p-3.5 font-medium">User / Email</th>
-              <th className="p-3.5 font-medium">POD / Store</th>
-              <th className="p-3.5 font-medium">Punch In Time</th>
-              <th className="p-3.5 font-medium">Punch Out Time</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-            {logsLoading ? (
-              <tr>
-                <td colSpan="4" className="p-8 text-center text-slate-400">Loading activity logs...</td>
-              </tr>
-            ) : logs.length === 0 ? (
-              <tr>
-                <td colSpan="4" className="p-8 text-center text-slate-400 font-medium">No logs found.</td>
-              </tr>
-            ) : (
-              logs.map((log, idx) => (
-                <tr key={log.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="p-3.5 font-bold text-xs text-slate-900 dark:text-slate-100">
-                    {getUserIdentifier(log)}
-                  </td>
-                  <td className="p-3.5 font-medium text-slate-700 dark:text-slate-300">
-                    {log.store_name || log.pod_id || log.geofence_id || 'OUT_OF_BOUNDS'}
-                  </td>
-                  <td className="p-3.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
-                    {log.punch_in_time ? new Date(log.punch_in_time).toLocaleString() : '—'}
-                  </td>
-                  <td className="p-3.5 text-xs text-rose-600 dark:text-rose-400 font-semibold whitespace-nowrap">
-                    {log.punch_out_time ? new Date(log.punch_out_time).toLocaleString() : 'Active (On Duty)'}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+            <div className="bg-white dark:bg-[#161B22] border border-slate-200 dark:border-[#28313D] rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-[#28313D] text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="p-3.5 font-medium">User / Email</th>
+                      <th className="p-3.5 font-medium">POD / Store</th>
+                      <th className="p-3.5 font-medium">Punch In Time</th>
+                      <th className="p-3.5 font-medium">Punch Out Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {logsLoading ? (
+                      <tr>
+                        <td colSpan="4" className="p-8 text-center text-slate-400 font-medium">Loading activity logs...</td>
+                      </tr>
+                    ) : logs.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="p-8 text-center text-slate-400 font-medium">No logs found.</td>
+                      </tr>
+                    ) : (
+                      logs.map((log, idx) => (
+                        <tr key={log.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="p-3.5 font-bold text-xs text-slate-900 dark:text-slate-100">
+                            {getUserIdentifier(log)}
+                          </td>
+                          <td className="p-3.5 font-medium text-slate-700 dark:text-slate-300">
+                            {log.store_name || log.pod_id || log.geofence_id || 'OUT_OF_BOUNDS'}
+                          </td>
+                          <td className="p-3.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
+                            {formatDateTime(log.punch_in_time)}
+                          </td>
+                          <td className="p-3.5 text-xs text-rose-600 dark:text-rose-400 font-semibold whitespace-nowrap">
+                            {log.punch_out_time ? formatDateTime(log.punch_out_time) : 'Active (On Duty)'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-[#28313D] text-sm">
-        <button
-          disabled={logPage <= 1 || logsLoading}
-          onClick={() => setLogPage(p => Math.max(p - 1, 1))}
-          className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#28313D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-all"
-        >
-          Previous
-        </button>
-        <span className="text-slate-500 text-xs font-medium">
-          Page {logPage} of {totalPages}
-        </span>
-        <button
-          disabled={logPage >= totalPages || logsLoading}
-          onClick={() => setLogPage(p => p + 1)}
-          className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#28313D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-all"
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+              {/* Pagination */}
+              <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-[#28313D] text-sm">
+                <button
+                  disabled={logPage <= 1 || logsLoading}
+                  onClick={() => setLogPage(p => Math.max(p - 1, 1))}
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#28313D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-all cursor-pointer"
+                >
+                  Previous
+                </button>
+                <span className="text-slate-500 text-xs font-medium">
+                  Page {logPage} of {totalPages}
+                </span>
+                <button
+                  disabled={logPage >= totalPages || logsLoading}
+                  onClick={() => setLogPage(p => p + 1)}
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#28313D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-all cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
+        {/* TAB 2: User Directory & Roles */}
         {activeTab === 'users' && isSuperAdmin && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -300,7 +318,7 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
               </h2>
               <button
                 onClick={fetchUsers}
-                className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all"
+                className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all cursor-pointer"
               >
                 Refresh Directory
               </button>
