@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Login from './screens/Login'
 import Dashboard, { DashboardSkeleton } from './screens/Dashboard'
 import Profile from './screens/Profile'
@@ -14,6 +14,7 @@ const APP_STATE = {
   READY: 'READY',
 }
 
+const OUT_OF_BOUNDS_LIMIT_MS = 30 * 60 * 1000 // 30 minutes
 function getCurrentCoordinates() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -22,20 +23,19 @@ function getCurrentCoordinates() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        })
-      },
+      (pos) => resolve({lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => {
-        let msg = 'Failed to acquire location.'
-        if (err.code === 1) msg = 'Location permission required. Please enable GPS.'
-        if (err.code === 2) msg = 'Location unavailable. Please check your device GPS.'
-        if (err.code === 3) msg = 'Location request timed out.'
-        reject(new Error(msg))
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(
+            (fallbackPos) => resolve({ lat: fallbackPos.coords.latitude, lng: fallbackPos.coords.longitude }),
+            (fallbackErr) => reject(new Error('Location unavailable. Please verify GPS permissions.')),
+            { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
+          )
+        } else {
+          reject(new Error('Location permission denied. Please enable GPS.'))
+        }
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     )
   })
 }
@@ -49,6 +49,8 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [toasts, setToasts] = useState([])
   const [isProcessingExit, setIsProcessingExit] = useState(false)
+  
+  const lastCheckTimeRef = useRef(0) // Used to throttle location API checks
 
   const [isDark, setIsDark] = useState(() => {
     const savedTheme = localStorage.getItem('impunch_theme')
@@ -92,7 +94,7 @@ export default function App() {
     if (isProcessingExit) return
     setIsProcessingExit(true)
 
-    addToast('error', reason || 'You are not at POD location or near to POD.')
+    addToast('error', reason || 'Auto punch-out initiated: Away from POD zone.')
 
     try {
       await api.punch('punch_out', lat, lng, null)
@@ -126,13 +128,11 @@ export default function App() {
   async function loadDashboard(session) {
     setAppState(APP_STATE.INITIALIZING)
     
-    let coords = null
+    let coords = { lat: 0, lng: 0 }
     try {
       coords = await getCurrentCoordinates()
     } catch (locErr) {
-      addToast('error', locErr.message)
-      setAppState(APP_STATE.READY)
-      return
+      addToast('warning', locErr.message || 'Proceeding without high-accuracy GPS.')
     }
 
     try {
@@ -144,7 +144,7 @@ export default function App() {
       setPunchedAt(status?.punchedAt || null)
 
       if (status?.isOutOfBounds || status?.podName === 'OUT_OF_BOUNDS') {
-        addToast('error', 'You are not at POD location or near to POD.')
+        addToast('error', 'You are currently away from your assigned POD.')
       }
 
       setAppState(APP_STATE.READY)
@@ -159,56 +159,75 @@ export default function App() {
     }
   }
 
-  const OUT_OF_BOUNDS_LIMIT_MS = 30 * 60 * 1000 // 30 minutes
+  // 1. Geofence Location Tracking Watcher (Throttled to run at most once every 60 seconds)
+  useEffect(() => {
+    if (appState !== APP_STATE.READY || isProcessingExit || !navigator.geolocation) return
 
-useEffect(() => {
-  if (appState !== APP_STATE.READY || isProcessingExit || !navigator.geolocation) return
+    const watchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const now = Date.now()
+        // Throttle API calls so they only execute every 60 seconds
+        if (now - lastCheckTimeRef.current < 60000) return
+        lastCheckTimeRef.current = now
 
-  const watchId = navigator.geolocation.watchPosition(
-    async (pos) => {
-      const currentLat = pos.coords.latitude
-      const currentLng = pos.coords.longitude
+        const currentLat = pos.coords.latitude
+        const currentLng = pos.coords.longitude
 
-      try {
-        const check = await api.getStatus(currentLat, currentLng)
-        
-        if (check?.isOutOfBounds || check?.podName === 'OUT_OF_BOUNDS') {
-          const now = Date.now()
-          const firstOobTime = localStorage.getItem('oob_start_time')
+        try {
+          const check = await api.getStatus(currentLat, currentLng)
+          
+          if (check?.isOutOfBounds || check?.podName === 'OUT_OF_BOUNDS') {
+            const firstOobTime = localStorage.getItem('oob_start_time')
 
-          if (!firstOobTime) {
-            // First time detected out of bounds — start the timer
-            localStorage.setItem('oob_start_time', now.toString())
-            addToast('warning', 'You are away from the POD location.')
-          } else {
-            const durationAway = now - parseInt(firstOobTime, 10)
-
-            if (durationAway >= OUT_OF_BOUNDS_LIMIT_MS) {
-              // 30 minutes exceeded — clear timer, punch out, and log out
-              localStorage.removeItem('oob_start_time')
-              await triggerAutoPunchOutAndLogout(
-                currentLat, 
-                currentLng, 
-                'Logged out: Away from POD location for over 30 minutes.'
-              )
+            if (!firstOobTime) {
+              localStorage.setItem('oob_start_time', now.toString())
+              addToast('warning', 'You left the POD area. 30 min auto-logout timer started.')
             } else {
-              const minutesLeft = Math.ceil((OUT_OF_BOUNDS_LIMIT_MS - durationAway) / 60000)
-              addToast('warning', `You are away from POD. Auto logout in ${minutesLeft} mins.`)
-            }
-          }
-        } else {
-          localStorage.removeItem('oob_start_time')
-        }
-      } catch (err) {
-        console.warn('Geofence tracking error:', err)
-      }
-    },
-    (err) => console.warn('GPS watcher error:', err),
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-  )
+              const durationAway = now - parseInt(firstOobTime, 10)
 
-  return () => navigator.geolocation.clearWatch(watchId)
-}, [appState, isProcessingExit, addToast, triggerAutoPunchOutAndLogout])
+              if (durationAway >= OUT_OF_BOUNDS_LIMIT_MS) {
+                localStorage.removeItem('oob_start_time')
+                await triggerAutoPunchOutAndLogout(
+                  currentLat, 
+                  currentLng, 
+                  'Auto-punched out: Away from POD for over 30 minutes.'
+                )
+              } else {
+                const minutesLeft = Math.ceil((OUT_OF_BOUNDS_LIMIT_MS - durationAway) / 60000)
+                addToast('warning', `Away from POD. Forced logout in ${minutesLeft} mins.`)
+              }
+            }
+          } else {
+            localStorage.removeItem('oob_start_time')
+          }
+        } catch (err) {
+          console.warn('Geofence tracking error:', err)
+        }
+      },
+      (err) => console.warn('GPS Watcher background warning:', err.message),
+      { enableHighAccuracy: false, timeout: 30000, maximumAge: 30000 }
+    )
+
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [appState, isProcessingExit, addToast, triggerAutoPunchOutAndLogout])
+
+  // 2. Background Heartbeat Interval (Catches active state even if GPS stream pauses/sleeps)
+  useEffect(() => {
+    if (appState !== APP_STATE.READY || isProcessingExit) return
+
+    const timerId = setInterval(() => {
+      const firstOobTime = localStorage.getItem('oob_start_time')
+      if (!firstOobTime) return
+
+      const durationAway = Date.now() - parseInt(firstOobTime, 10)
+      if (durationAway >= OUT_OF_BOUNDS_LIMIT_MS) {
+        localStorage.removeItem('oob_start_time')
+        triggerAutoPunchOutAndLogout(0, 0, 'Auto-punched out: Away from POD for over 30 minutes.')
+      }
+    }, 30000) // Heartbeat every 30 seconds
+
+    return () => clearInterval(timerId)
+  }, [appState, isProcessingExit, triggerAutoPunchOutAndLogout])
 
   function handleAuthenticated() {
     const session = getSession()
