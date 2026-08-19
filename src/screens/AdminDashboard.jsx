@@ -83,6 +83,7 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
   const isSuperAdmin = user?.role === 'superadmin'
 
   const [logs, setLogs] = useState([])
+  const [storesMap, setStoresMap] = useState({})
   const [logsLoading, setLogsLoading] = useState(false)
   const [logPage, setLogPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -94,10 +95,61 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
   const fetchLogs = useCallback(async (page = 1) => {
     setLogsLoading(true)
     try {
-      const res = await api.getRecentLogs(page, 15)
-      setLogs(res?.logs || [])
-      setTotalPages(res?.totalPages || 1)
-      setLogPage(res?.page || 1)
+      const [logsRes, storesRes] = await Promise.allSettled([
+        api.getRecentLogs(page, 15),
+        api.getStores ? api.getStores() : Promise.resolve([])
+      ])
+
+      // 1. Build Stores Master lookup map dynamically
+      if (storesRes.status === 'fulfilled' && storesRes.value) {
+        const storeData = storesRes.value.stores || storesRes.value || []
+        const mapping = {}
+
+        if (Array.isArray(storeData)) {
+          storeData.forEach((item) => {
+            const rawPodKey =
+              item.pod_id ??
+              item['POD ID'] ??
+              item['Pod ID'] ??
+              item.podId ??
+              item.podid ??
+              item.id
+
+            if (rawPodKey !== undefined && rawPodKey !== null) {
+              const podKey = String(rawPodKey).trim()
+
+              const storeName =
+                item.store_name ??
+                item['Store Name'] ??
+                item['store name'] ??
+                item.name ??
+                ''
+
+              const city =
+                item.city ??
+                item['City'] ??
+                item['CITY'] ??
+                ''
+
+              mapping[podKey] = {
+                storeName: String(storeName).trim(),
+                city: String(city).trim()
+              }
+            }
+          })
+        }
+        setStoresMap(mapping)
+      }
+
+      // 2. Set logs state
+      if (logsRes.status === 'fulfilled' && logsRes.value) {
+        const res = logsRes.value
+        setLogs(res?.logs || [])
+        setTotalPages(res?.totalPages || 1)
+        setLogPage(res?.page || page)
+      } else if (logsRes.status === 'rejected') {
+        throw logsRes.reason
+      }
     } catch (err) {
       addToast('error', err?.message || 'Failed to fetch activity logs.')
     } finally {
@@ -158,7 +210,25 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
     return item.name || item.username || item.user_name || item.email || item.user_id || 'N/A'
   }
 
-  // Safe helper to format ISO date strings into local date and time
+  const formatStoreDisplay = (log) => {
+    const podKey = String(log.pod_id || log.geofence_id || '').trim()
+    const storeInfo = storesMap[podKey]
+
+    if (storeInfo?.storeName) {
+      return storeInfo.city 
+        ? `${storeInfo.storeName} (${storeInfo.city})` 
+        : storeInfo.storeName
+    }
+
+    if (log.store_name) {
+      return log.city 
+        ? `${log.store_name} (${log.city})` 
+        : log.store_name
+    }
+
+    return podKey || 'OUT_OF_BOUNDS'
+  }
+
   const formatDateTime = (isoString) => {
     if (!isoString) return '—'
     const date = new Date(isoString)
@@ -228,7 +298,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
           </div>
         </div>
 
-        {/* TAB 1: Live System Activity Logs */}
         {activeTab === 'logs' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -269,8 +338,8 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
                           <td className="p-3.5 font-bold text-xs text-slate-900 dark:text-slate-100">
                             {getUserIdentifier(log)}
                           </td>
-                          <td className="p-3.5 font-medium text-slate-700 dark:text-slate-300">
-                            {log.store_name || log.pod_id || log.geofence_id || 'OUT_OF_BOUNDS'}
+                          <td className="p-3.5 font-semibold text-slate-800 dark:text-slate-200">
+                            {formatStoreDisplay(log)}
                           </td>
                           <td className="p-3.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
                             {formatDateTime(log.punch_in_time)}
@@ -309,7 +378,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
           </div>
         )}
 
-        {/* TAB 2: User Directory & Roles */}
         {activeTab === 'users' && isSuperAdmin && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
