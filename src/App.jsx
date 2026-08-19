@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Login from './screens/Login'
 import Dashboard, { DashboardSkeleton } from './screens/Dashboard'
+import AdminDashboard from './screens/AdminDashboard'
 import Profile from './screens/Profile'
 import History from './screens/History' 
 import NavBar from './components/NavBar'
@@ -15,6 +16,7 @@ const APP_STATE = {
 }
 
 const OUT_OF_BOUNDS_LIMIT_MS = 30 * 60 * 1000 // 30 minutes
+
 function getCurrentCoordinates() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -44,13 +46,14 @@ export default function App() {
   const [appState, setAppState] = useState(APP_STATE.CHECKING_SESSION)
   const [page, setPage] = useState('dashboard')
   const [user, setUser] = useState(null)
+  const [userRole, setUserRole] = useState('user')
   const [dutyStatus, setDutyStatus] = useState('punched_out')
   const [punchedAt, setPunchedAt] = useState(null)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [toasts, setToasts] = useState([])
   const [isProcessingExit, setIsProcessingExit] = useState(false)
   
-  const lastCheckTimeRef = useRef(0) // Used to throttle location API checks
+  const lastCheckTimeRef = useRef(0)
 
   const [isDark, setIsDark] = useState(() => {
     const savedTheme = localStorage.getItem('impunch_theme')
@@ -88,6 +91,8 @@ export default function App() {
     setPage('dashboard')
     setAppState(APP_STATE.AUTH)
     setIsProcessingExit(false)
+    setUserRole('user')
+    setUser(null)
   }
 
   const triggerAutoPunchOutAndLogout = useCallback(async (lat, lng, reason) => {
@@ -138,7 +143,10 @@ export default function App() {
     try {
       const status = await api.getStatus(coords.lat, coords.lng)
       const userEmail = session?.user?.email || session?.email || ''
-      setUser({ email: userEmail, user: { email: userEmail } })
+      const role = String(status?.role || session?.user?.role || session?.role || 'user').trim().toLowerCase()
+      
+      setUserRole(role)
+      setUser({ email: userEmail, role: role, user: { email: userEmail, role: role } })
       
       setDutyStatus(status?.dutyStatus || 'punched_out')
       setPunchedAt(status?.punchedAt || null)
@@ -149,9 +157,15 @@ export default function App() {
 
       setAppState(APP_STATE.READY)
     } catch (err) {
-      if (String(err?.message || '').toLowerCase().includes('session')) {
+      const errMsg = String(err?.message || '').toLowerCase()
+      
+      if (errMsg.includes('session') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('expired')) {
         clearSession()
+        localStorage.removeItem('oob_start_time')
+        setUser(null)
+        setUserRole('user')
         setAppState(APP_STATE.AUTH)
+        addToast('warning', 'Session expired. Please log in with a new OTP.')
       } else {
         addToast('error', err?.message || 'Could not load dashboard status.')
         setAppState(APP_STATE.READY)
@@ -159,14 +173,12 @@ export default function App() {
     }
   }
 
-  // 1. Geofence Location Tracking Watcher (Throttled to run at most once every 60 seconds)
   useEffect(() => {
     if (appState !== APP_STATE.READY || isProcessingExit || !navigator.geolocation) return
 
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
         const now = Date.now()
-        // Throttle API calls so they only execute every 60 seconds
         if (now - lastCheckTimeRef.current < 60000) return
         lastCheckTimeRef.current = now
 
@@ -211,7 +223,6 @@ export default function App() {
     return () => navigator.geolocation.clearWatch(watchId)
   }, [appState, isProcessingExit, addToast, triggerAutoPunchOutAndLogout])
 
-  // 2. Background Heartbeat Interval (Catches active state even if GPS stream pauses/sleeps)
   useEffect(() => {
     if (appState !== APP_STATE.READY || isProcessingExit) return
 
@@ -224,7 +235,7 @@ export default function App() {
         localStorage.removeItem('oob_start_time')
         triggerAutoPunchOutAndLogout(0, 0, 'Auto-punched out: Away from POD for over 30 minutes.')
       }
-    }, 30000) // Heartbeat every 30 seconds
+    }, 30000)
 
     return () => clearInterval(timerId)
   }, [appState, isProcessingExit, triggerAutoPunchOutAndLogout])
@@ -236,6 +247,7 @@ export default function App() {
 
   const handleToggleTheme = () => setIsDark((prev) => !prev)
   const isReady = appState === APP_STATE.READY
+  const isAdminOrSuper = userRole === 'admin' || userRole === 'superadmin'
 
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
@@ -251,15 +263,25 @@ export default function App() {
 
       {isReady && (
         <>
+          {/* Main View: Admin Console or Agent Dashboard */}
           <div style={{ display: page === 'dashboard' ? 'block' : 'none' }}>
-            <Dashboard
-              user={user}
-              initialDutyStatus={dutyStatus}
-              initialPunchedAt={punchedAt}
-              addToast={addToast}
-              onLogout={handleSignOut}
-              onNavigate={setPage}
-            />
+            {isAdminOrSuper ? (
+              <AdminDashboard 
+                user={user} 
+                onLogout={handleSignOut} 
+                onNavigate={setPage}
+                addToast={addToast} 
+              />
+            ) : (
+              <Dashboard
+                user={user}
+                initialDutyStatus={dutyStatus}
+                initialPunchedAt={punchedAt}
+                addToast={addToast}
+                onLogout={handleSignOut}
+                onNavigate={setPage}
+              />
+            )}
           </div>
 
           <div style={{ display: page === 'history' ? 'block' : 'none' }}>
@@ -279,7 +301,9 @@ export default function App() {
             />
           </div>
 
-          <NavBar page={page} onNavigate={setPage} />
+          {!isAdminOrSuper && (
+            <NavBar page={page} onNavigate={setPage} />
+          )}
         </>
       )}
 
