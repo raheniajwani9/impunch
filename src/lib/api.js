@@ -128,6 +128,23 @@ export const api = {
     ])
   },
 
+  async addUser(email, role = 'user') {
+    const session = getSession()
+    return await runBackendFunction('addUser', [
+      session?.token,
+      email,
+      role
+    ])
+  },
+
+  async removeUser(email) {
+    const session = getSession()
+    return await runBackendFunction('removeUser', [
+      session?.token,
+      email
+    ])
+  },
+
   async getStores() {
     try {
       const res = await runBackendFunction('getStores', [])
