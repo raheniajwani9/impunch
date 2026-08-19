@@ -5,6 +5,7 @@ import Header from '../components/Header'
 
 export default function History({ onLogout, onNavigate }) {
   const [logs, setLogs] = useState(null)
+  const [storesMap, setStoresMap] = useState({})
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -24,28 +25,74 @@ export default function History({ onLogout, onNavigate }) {
   }
 
   useEffect(() => {
-    fetchHistory(page)
+    fetchInitialData(page)
   }, [page])
 
-  async function fetchHistory(targetPage = page) {
+  async function fetchInitialData(targetPage = page) {
     setLoading(true)
     setError('')
     try {
-      const res = await api.getRecentLogs(targetPage, pageSize)
+      const [logsRes, storesRes] = await Promise.allSettled([
+        api.getRecentLogs(targetPage, pageSize),
+        api.getStores ? api.getStores() : Promise.resolve([])
+      ])
+      if (storesRes.status === 'fulfilled' && storesRes.value) {
+        const storeData = storesRes.value.stores || storesRes.value || []
+        const mapping = {}
+
+        if (Array.isArray(storeData)) {
+          storeData.forEach((item) => {
+            const rawPodKey =
+              item.pod_id ??
+              item['POD ID'] ??
+              item['Pod ID'] ??
+              item.podId ??
+              item.podid ??
+              item.id
+
+            if (rawPodKey !== undefined && rawPodKey !== null) {
+              const podKey = String(rawPodKey).trim()
+
+              const storeName =
+                item.store_name ??
+                item['Store Name'] ??
+                item['store name'] ??
+                item.name ??
+                ''
+
+              const city =
+                item.city ??
+                item['City'] ??
+                item['CITY'] ??
+                ''
+
+              mapping[podKey] = {
+                storeName: String(storeName).trim(),
+                city: String(city).trim()
+              }
+            }
+          })
+        }
+        setStoresMap(mapping)
+      }
 
       let logArray = []
-      
-      if (res && Array.isArray(res.logs)) {
-        logArray = res.logs
-        setTotalPages(res.totalPages || 1)
-        setTotalRecords(res.totalRecords || 0)
-      } else if (Array.isArray(res)) {
-        logArray = res
-        setTotalPages(1)
-        setTotalRecords(res.length)
-      } else if (res && typeof res === 'object') {
-        const possibleArray = Object.values(res).find((v) => Array.isArray(v))
-        if (possibleArray) logArray = possibleArray
+      if (logsRes.status === 'fulfilled' && logsRes.value) {
+        const res = logsRes.value
+        if (res && Array.isArray(res.logs)) {
+          logArray = res.logs
+          setTotalPages(res.totalPages || 1)
+          setTotalRecords(res.totalRecords || 0)
+        } else if (Array.isArray(res)) {
+          logArray = res
+          setTotalPages(1)
+          setTotalRecords(res.length)
+        } else if (res && typeof res === 'object') {
+          const possibleArray = Object.values(res).find((v) => Array.isArray(v))
+          if (possibleArray) logArray = possibleArray
+        }
+      } else if (logsRes.status === 'rejected') {
+        throw logsRes.reason
       }
 
       setLogs(logArray)
@@ -58,7 +105,6 @@ export default function History({ onLogout, onNavigate }) {
     }
   }
 
-  // Group logs by Date string ("YYYY-MM-DD") based on punch_in_time or punch_out_time
   const groupedLogs = useMemo(() => {
     if (!logs || !Array.isArray(logs) || logs.length === 0) return {}
 
@@ -94,7 +140,6 @@ export default function History({ onLogout, onNavigate }) {
     return groups
   }, [logs])
 
-  // Helper to format Date Header
   function formatDateHeader(dateStr, dateObj) {
     if (dateStr === 'Unknown Date' || !dateObj || isNaN(dateObj.getTime())) return 'Previous Records'
 
@@ -112,7 +157,6 @@ export default function History({ onLogout, onNavigate }) {
     })
   }
 
-  // Helper to safely format time display
   function formatTime(isoString) {
     if (!isoString) return '--:--'
     const date = new Date(isoString)
@@ -123,12 +167,9 @@ export default function History({ onLogout, onNavigate }) {
 
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors font-sans pb-28">
-      {/* Shared Header */}
       <Header userEmail={userEmail} onLogout={handleSignOut} onNavigate={onNavigate} />
 
-      {/* Main Content */}
       <main className="max-w-xl mx-auto px-4 sm:px-6 pt-6 space-y-5">
-        {/* Title & Refresh */}
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-lg font-black tracking-wide text-[#0050FF]">
@@ -139,7 +180,7 @@ export default function History({ onLogout, onNavigate }) {
             </p>
           </div>
           <button
-            onClick={() => fetchHistory(page)}
+            onClick={() => fetchInitialData(page)}
             disabled={loading}
             className="text-xs font-bold text-[#0050FF] bg-[#0050FF]/10 hover:bg-[#0050FF]/20 px-3.5 py-2 rounded-xl border border-[#0050FF]/20 transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
           >
@@ -160,7 +201,6 @@ export default function History({ onLogout, onNavigate }) {
           </div>
         )}
 
-        {/* Loading State */}
         {loading && (
           <div className="space-y-4">
             <SkeletonBox className="h-6 w-28 rounded-md" />
@@ -172,7 +212,6 @@ export default function History({ onLogout, onNavigate }) {
           </div>
         )}
 
-        {/* Empty State */}
         {!loading && logs !== null && Object.keys(groupedLogs).length === 0 && (
           <GlassCard className="p-8 text-center space-y-2">
             <div className="w-12 h-12 rounded-full bg-[#0050FF]/10 text-[#0050FF] flex items-center justify-center mx-auto text-xl font-black">
@@ -187,7 +226,6 @@ export default function History({ onLogout, onNavigate }) {
           </GlassCard>
         )}
 
-        {/* Shift History Cards */}
         {!loading &&
           Object.keys(groupedLogs).map((dateKey) => {
             const group = groupedLogs[dateKey]
@@ -206,7 +244,21 @@ export default function History({ onLogout, onNavigate }) {
 
                 <GlassCard className="divide-y divide-slate-100 dark:divide-[#28313D] !p-0 overflow-hidden shadow-lg border border-slate-200/60 dark:border-[#28313D]">
                   {group.items.map((log, idx) => {
-                    const storeName = log.store_name || log.pod_id || log.geofence_id || 'OUT_OF_BOUNDS'
+                    const podKey = String(log.pod_id || log.geofence_id || '').trim()
+                    const storeInfo = storesMap[podKey]
+                    
+                    let storeDisplay = podKey || 'OUT_OF_BOUNDS'
+
+                    if (storeInfo?.storeName) {
+                      storeDisplay = storeInfo.city 
+                        ? `${storeInfo.storeName} (${storeInfo.city})`
+                        : storeInfo.storeName
+                    } else if (log.store_name) {
+                      storeDisplay = log.city 
+                        ? `${log.store_name} (${log.city})` 
+                        : log.store_name
+                    }
+
                     const isViolation =
                       log.is_violation === true ||
                       String(log.is_violation).toUpperCase() === 'TRUE'
@@ -220,21 +272,20 @@ export default function History({ onLogout, onNavigate }) {
                         key={log.id || idx}
                         className="p-4 space-y-3 hover:bg-slate-500/5 transition"
                       >
-                        {/* Header: Location & Zone Badge */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full bg-[#0050FF]" />
-                            <p className="text-slate-800 dark:text-slate-200 font-bold text-sm">
-                              {storeName}
+                            <span className="w-2.5 h-2.5 rounded-full bg-[#0050FF] shrink-0" />
+                            <p className="text-slate-800 dark:text-slate-200 font-bold text-sm leading-snug">
+                              {storeDisplay}
                             </p>
                           </div>
 
                           {isViolation ? (
-                            <span className="text-[10px] bg-red-500/10 text-red-500 dark:text-red-400 font-bold px-2 py-0.5 rounded border border-red-500/20">
+                            <span className="text-[10px] bg-red-500/10 text-red-500 dark:text-red-400 font-bold px-2 py-0.5 rounded border border-red-500/20 shrink-0">
                               Out of Zone
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20">
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 shrink-0">
                               In Zone
                             </span>
                           )}
