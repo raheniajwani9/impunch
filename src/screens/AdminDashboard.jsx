@@ -81,6 +81,7 @@ function RoleSelectDropdown({ currentRole, onSelectRole, disabled }) {
 export default function AdminDashboard({ user, onLogout, onNavigate, addToast }) {
   const [activeTab, setActiveTab] = useState('logs')
   const isSuperAdmin = user?.role === 'superadmin'
+  const isAdmin = isSuperAdmin || user?.role === 'admin'
 
   const [logs, setLogs] = useState([])
   const [storesMap, setStoresMap] = useState({})
@@ -92,6 +93,13 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
   const [usersLoading, setUsersLoading] = useState(false)
   const [updatingUserId, setUpdatingUserId] = useState(null)
 
+  const [newEmail, setNewEmail] = useState('')
+  const [newRole, setNewRole] = useState('user')
+  const [isAddingUser, setIsAddingUser] = useState(false)
+  
+  const [userToRemove, setUserToRemove] = useState(null) // Modal target
+  const [removingEmail, setRemovingEmail] = useState(null)
+
   const fetchLogs = useCallback(async (page = 1) => {
     setLogsLoading(true)
     try {
@@ -100,7 +108,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
         api.getStores ? api.getStores() : Promise.resolve([])
       ])
 
-      // 1. Build Stores Master lookup map dynamically
       if (storesRes.status === 'fulfilled' && storesRes.value) {
         const storeData = storesRes.value.stores || storesRes.value || []
         const mapping = {}
@@ -117,19 +124,8 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
 
             if (rawPodKey !== undefined && rawPodKey !== null) {
               const podKey = String(rawPodKey).trim()
-
-              const storeName =
-                item.store_name ??
-                item['Store Name'] ??
-                item['store name'] ??
-                item.name ??
-                ''
-
-              const city =
-                item.city ??
-                item['City'] ??
-                item['CITY'] ??
-                ''
+              const storeName = item.store_name ?? item['Store Name'] ?? item['store name'] ?? item.name ?? ''
+              const city = item.city ?? item['City'] ?? item['CITY'] ?? ''
 
               mapping[podKey] = {
                 storeName: String(storeName).trim(),
@@ -141,7 +137,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
         setStoresMap(mapping)
       }
 
-      // 2. Set logs state
       if (logsRes.status === 'fulfilled' && logsRes.value) {
         const res = logsRes.value
         setLogs(res?.logs || [])
@@ -158,7 +153,7 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
   }, [addToast])
 
   const fetchUsers = useCallback(async () => {
-    if (!isSuperAdmin) return
+    if (!isAdmin) return
     setUsersLoading(true)
     try {
       const res = await api.getAllUsers()
@@ -174,15 +169,58 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
     } finally {
       setUsersLoading(false)
     }
-  }, [isSuperAdmin, addToast])
+  }, [isAdmin, addToast])
 
   useEffect(() => {
     if (activeTab === 'logs') {
       fetchLogs(logPage)
-    } else if (activeTab === 'users' && isSuperAdmin) {
+    } else if (activeTab === 'users' && isAdmin) {
       fetchUsers()
     }
-  }, [activeTab, logPage, fetchLogs, fetchUsers, isSuperAdmin])
+  }, [activeTab, logPage, fetchLogs, fetchUsers, isAdmin])
+
+  const handleAddUser = async (e) => {
+    e.preventDefault()
+    if (!newEmail || !newEmail.includes('@')) {
+      addToast('error', 'Please enter a valid email address.')
+      return
+    }
+
+    setIsAddingUser(true)
+    try {
+      await api.addUser(newEmail, newRole)
+      addToast('success', `User ${newEmail} added successfully!`)
+      setNewEmail('')
+      setNewRole('user')
+      fetchUsers()
+    } catch (err) {
+      addToast('error', err?.message || 'Failed to add user.')
+    } finally {
+      setIsAddingUser(false)
+    }
+  }
+
+  // Opens custom modal
+  const promptRemoveUser = (targetEmail) => {
+    setUserToRemove(targetEmail)
+  }
+
+  const confirmRemoveUser = async () => {
+    if (!userToRemove) return
+    const targetEmail = userToRemove
+    setRemovingEmail(targetEmail)
+
+    try {
+      await api.removeUser(targetEmail)
+      addToast('success', `User ${targetEmail} removed.`)
+      setUsers(prev => prev.filter(u => u.email !== targetEmail))
+    } catch (err) {
+      addToast('error', err?.message || 'Failed to remove user.')
+    } finally {
+      setRemovingEmail(null)
+      setUserToRemove(null)
+    }
+  }
 
   const handleRoleChange = async (targetUser, newRole) => {
     const targetUserId = targetUser.user_id || targetUser.id || targetUser.email
@@ -192,7 +230,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
       await api.updateUserRole(targetUserId, newRole)
       addToast('success', `Role updated to ${newRole}. User session ended.`)
       
-      // If superadmin modified their own role, trigger logout immediately
       if (targetUser.email === user?.email || targetUserId === user?.user_id) {
         onLogout()
         return
@@ -283,7 +320,7 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
               Activity Logs
             </button>
 
-            {isSuperAdmin && (
+            {isAdmin && (
               <button
                 onClick={() => setActiveTab('users')}
                 className={`pb-3 px-4 font-semibold text-sm transition-colors border-b-2 ${
@@ -292,7 +329,7 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
                     : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
               >
-                User Roles Management
+                User Directory & Access
               </button>
             )}
           </div>
@@ -354,7 +391,6 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
                 </table>
               </div>
 
-              {/* Pagination */}
               <div className="flex items-center justify-between p-4 border-t border-slate-200 dark:border-[#28313D] text-sm">
                 <button
                   disabled={logPage <= 1 || logsLoading}
@@ -378,66 +414,157 @@ export default function AdminDashboard({ user, onLogout, onNavigate, addToast })
           </div>
         )}
 
-        {activeTab === 'users' && isSuperAdmin && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                User Directory & Role Control
+        {activeTab === 'users' && isAdmin && (
+          <div className="space-y-6">
+            {/* Add User Card */}
+            <div className="bg-white dark:bg-[#161B22] border border-slate-200 dark:border-[#28313D] rounded-xl p-4 sm:p-5 shadow-sm">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-3">
+                Add Authorized User
               </h2>
-              <button
-                onClick={fetchUsers}
-                className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all cursor-pointer"
-              >
-                Refresh Directory
-              </button>
+              <form onSubmit={handleAddUser} className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                <input
+                  type="email"
+                  placeholder="Enter user email address"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-[#0E1217] border border-slate-200 dark:border-[#28313D] text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0050FF]"
+                  required
+                />
+                
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value)}
+                  className="px-3 py-2 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-[#0E1217] border border-slate-200 dark:border-[#28313D] text-slate-700 dark:text-slate-300 focus:outline-none"
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                  {isSuperAdmin && <option value="superadmin">Superadmin</option>}
+                </select>
+
+                <button
+                  type="submit"
+                  disabled={isAddingUser}
+                  className="px-4 py-2 text-xs font-bold bg-[#FF5200] hover:bg-[#FF5200]/90 text-white rounded-xl transition shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  {isAddingUser ? 'Adding...' : '+ Add User'}
+                </button>
+              </form>
             </div>
 
-            <div className="bg-white dark:bg-[#161B22] border border-slate-200 dark:border-[#28313D] rounded-xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-[#28313D] text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="p-3.5 font-medium">User Name / Email</th>
-                      <th className="p-3.5 font-medium">Created At</th>
-                      <th className="p-3.5 font-medium">Assigned Role</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {usersLoading ? (
+            {/* User List Table */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                  User Directory ({users.length})
+                </h2>
+                <button
+                  onClick={fetchUsers}
+                  className="text-xs px-3.5 py-1.5 rounded-lg bg-[#0050FF] text-white font-semibold shadow-sm hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+                >
+                  Refresh Directory
+                </button>
+              </div>
+
+              <div className="bg-white dark:bg-[#161B22] border border-slate-200 dark:border-[#28313D] rounded-xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-[#28313D] text-slate-500 dark:text-slate-400">
                       <tr>
-                        <td colSpan="3" className="p-8 text-center text-slate-400 font-medium">Loading user directory...</td>
+                        <th className="p-3.5 font-medium">User Name / Email</th>
+                        <th className="p-3.5 font-medium">Created At</th>
+                        <th className="p-3.5 font-medium">Assigned Role</th>
+                        <th className="p-3.5 font-medium text-right">Actions</th>
                       </tr>
-                    ) : !users || users.length === 0 ? (
-                      <tr>
-                        <td colSpan="3" className="p-8 text-center text-slate-400 font-medium">No users found.</td>
-                      </tr>
-                    ) : (
-                      users.map((u, idx) => {
-                        const targetId = u.user_id || u.id || u.email
-                        return (
-                          <tr key={targetId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                            <td className="p-3.5 font-bold text-slate-900 dark:text-slate-100">{getUserIdentifier(u)}</td>
-                            <td className="p-3.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                              {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
-                            </td>
-                            <td className="p-3.5">
-                              <RoleSelectDropdown
-                                currentRole={u.role}
-                                disabled={updatingUserId === targetId}
-                                onSelectRole={(newRole) => handleRoleChange(u, newRole)}
-                              />
-                            </td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {usersLoading ? (
+                        <tr>
+                          <td colSpan="4" className="p-8 text-center text-slate-400 font-medium">Loading user directory...</td>
+                        </tr>
+                      ) : !users || users.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="p-8 text-center text-slate-400 font-medium">No users found.</td>
+                        </tr>
+                      ) : (
+                        users.map((u, idx) => {
+                          const targetId = u.user_id || u.id || u.email
+                          const isSelf = u.email === user?.email
+                          const targetRole = String(u.role || 'user').toLowerCase()
+
+                          // Permission rules:
+                          // - Cannot remove yourself
+                          // - Admins cannot remove other admins or superadmins
+                          const canRemove = !isSelf && (isSuperAdmin || (isAdmin && targetRole === 'user'))
+
+                          return (
+                            <tr key={targetId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                              <td className="p-3.5 font-bold text-slate-900 dark:text-slate-100">
+                                {getUserIdentifier(u)}
+                                {isSelf && <span className="ml-2 text-[10px] text-[#0050FF] font-extrabold">(You)</span>}
+                              </td>
+                              <td className="p-3.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                {u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}
+                              </td>
+                              <td className="p-3.5">
+                                <RoleSelectDropdown
+                                  currentRole={u.role}
+                                  disabled={updatingUserId === targetId || (!isSuperAdmin && u.role === 'superadmin')}
+                                  onSelectRole={(newRole) => handleRoleChange(u, newRole)}
+                                />
+                              </td>
+                              <td className="p-3.5 text-right">
+                                <button
+                                  disabled={!canRemove || removingEmail === u.email}
+                                  onClick={() => promptRemoveUser(u.email)}
+                                  className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  {removingEmail === u.email ? 'Removing...' : 'Remove'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* Custom Dark Confirmation Modal */}
+      {userToRemove && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-[#161B22] border border-[#28313D] rounded-2xl max-w-sm w-full p-6 shadow-2xl text-slate-100 space-y-4">
+            <div className="w-10 h-10 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center font-bold text-lg">
+              ⚠️
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Remove User Access</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Are you sure you want to remove <strong className="text-slate-200">{userToRemove}</strong>? Their session will be ended immediately.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                onClick={() => setUserToRemove(null)}
+                className="px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemoveUser}
+                disabled={removingEmail === userToRemove}
+                className="px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-500 text-white rounded-xl transition shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {removingEmail === userToRemove ? 'Removing...' : 'Yes, Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
