@@ -1,11 +1,26 @@
 const SESSION_KEY = 'impunch_session'
+const MAX_POD_DISTANCE_KM = 100
+
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 0
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
 
 export function getSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
     return raw ? JSON.parse(raw) : null
   } catch (err) {
-    console.error('Failed to parse session:', err)
     return null
   }
 }
@@ -13,21 +28,16 @@ export function getSession() {
 export function setSession(sessionData) {
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData))
-  } catch (err) {
-    console.error('Failed to save session:', err)
-  }
+  } catch (err) {}
 }
 
 export function clearSession() {
   try {
     localStorage.removeItem(SESSION_KEY)
-  } catch (err) {
-    console.error('Failed to clear session:', err)
-  }
+  } catch (err) {}
 }
 
 async function runBackendFunction(fnName, args = []) {
-  // If running inside Google Apps Script iframe environment
   if (
     typeof window !== 'undefined' &&
     window.google &&
@@ -50,7 +60,6 @@ async function runBackendFunction(fnName, args = []) {
     })
   }
 
-  // Running in local dev server or external web app
   const scriptUrl = import.meta.env.VITE_APPS_SCRIPT_URL || ''
   if (!scriptUrl) {
     throw new Error('Apps Script Web App URL is not defined in environment variables.')
@@ -81,52 +90,110 @@ export const api = {
   async verifyOtp(email, code) {
     const res = await runBackendFunction('verifyOtp', [email, code])
     if (res && res.token) {
+      const extractedRole = res.user?.role || res.role || 'user'
       setSession({
         token: res.token,
         email: res.user?.email || email,
-        user: res.user || { email },
+        role: extractedRole,
+        user: res.user || { email, role: extractedRole },
       })
     }
     return res
   },
 
-  async getStatus() {
-    const session = getSession()
-    const token = session?.token || ''
+  async getAllUsers() {
+  const session = getSession()
+  try {
+    const res = await runBackendFunction('getAllUsers', [session?.token])
+    console.log('Raw response from getAllUsers:', res)
+    
+    if (Array.isArray(res)) return res
+    if (res && Array.isArray(res.result)) return res.result
+    if (res && Array.isArray(res.users)) return res.users
+    if (res && Array.isArray(res.data)) return res.data
+    
+    return []
+  } catch (err) {
+    console.error('getAllUsers API Error:', err)
+    throw err
+  }
+},
 
+  async updateUserRole(targetUserId, newRole) {
+    const session = getSession()
+    return await runBackendFunction('updateUserRole', [
+      session?.token,
+      targetUserId,
+      newRole,
+    ])
+  },
+
+  async getStores() {
     try {
-      const res = await runBackendFunction('getStatus', [token])
-      return {
-        dutyStatus: res?.dutyStatus || 'punched_out',
-        punchedAt: res?.punchedAt || null,
+      const res = await runBackendFunction('getStores', [])
+      
+      if (res && res.stores && Array.isArray(res.stores)) {
+        return res.stores
       }
+      if (Array.isArray(res)) {
+        return res
+      }
+      return []
     } catch (err) {
-      console.warn('getStatus API error:', err)
-      return { dutyStatus: 'punched_out', punchedAt: null }
+      console.error('getStores API Error:', err)
+      return []
     }
   },
 
- async getRecentLogs(page = 1, pageSize = 10) {
+  async getStatus(lat = null, lng = null) {
     const session = getSession()
     const token = session?.token || ''
 
     try {
-      // Pass token, page, and pageSize to the backend function
-      const res = await runBackendFunction('getRecentLogs', [token, page, pageSize])
-      console.log('Backend response raw:', res)
+      const res = await runBackendFunction('getStatus', [token, lat, lng])
+      return {
+        success: res?.success !== false,
+        role: res?.role || res?.user?.role || null,
+        dutyStatus: res?.dutyStatus || 'punched_out',
+        punchedAt: res?.punchedAt || null,
+        podName: res?.podName || res?.geofenceId || null,
+        podLat: res?.podLat || res?.geofenceLat || null,
+        podLng: res?.podLng || res?.geofenceLng || null,
+        isOutOfBounds:
+          res?.isOutOfBounds || res?.is_violation || res?.podName === 'OUT_OF_BOUNDS',
+      }
+    } catch (err) {
+      console.warn('getStatus API error:', err)
+      throw err
+    }
+  },
 
-      // Return the full object so History.jsx gets logs, totalPages, and totalRecords
+  async getRecentLogs(page = 1, pageSize = 10) {
+    const session = getSession()
+    const token = session?.token || ''
+
+    try {
+      const res = await runBackendFunction('getRecentLogs', [
+        token,
+        page,
+        pageSize,
+      ])
       if (res && typeof res === 'object') {
         return {
           success: res.success !== false,
           logs: res.logs || (Array.isArray(res) ? res : []),
           totalPages: res.totalPages || 1,
           totalRecords: res.totalRecords || 0,
-          currentPage: res.currentPage || page
+          currentPage: res.currentPage || page,
         }
       }
-
-      return { success: true, logs: [], totalPages: 1, totalRecords: 0, currentPage: page }
+      return {
+        success: true,
+        logs: [],
+        totalPages: 1,
+        totalRecords: 0,
+        currentPage: page,
+      }
     } catch (err) {
       console.error('getRecentLogs API error:', err)
       throw err
@@ -139,6 +206,14 @@ export const api = {
 
     if (!token) {
       throw new Error('Session expired. Please log in again.')
+    }
+
+    if (action === 'punch_in' || action === 'IN') {
+      const status = await this.getStatus(lat, lng)
+
+      if (status.isOutOfBounds || status.podName === 'OUT_OF_BOUNDS') {
+        throw new Error('You are not at POD location or near to POD.')
+      }
     }
 
     return await runBackendFunction('punch', [
