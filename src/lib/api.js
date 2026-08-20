@@ -173,6 +173,17 @@ export const api = {
         role: res?.role || res?.user?.role || null,
         dutyStatus: res?.dutyStatus || 'punched_out',
         punchedAt: res?.punchedAt || null,
+        breakStartedAt: res?.breakStartedAt || null,
+        breaksTaken: Number(res?.breaksTaken) || 0,
+        breaksRemaining: res?.breaksRemaining ?? null,
+        maxBreaksReached: Boolean(res?.maxBreaksReached),
+        todayMinutes: Number(res?.todayMinutes) || 0,
+        todayBreakMinutes: Number(res?.todayBreakMinutes) || 0,
+        weekMinutes: Number(res?.weekMinutes) || 0,
+        todayPunchCount: Number(res?.todayPunchCount) || 0,
+        weeklyBreakdown: Array.isArray(res?.weeklyBreakdown)
+          ? res.weeklyBreakdown.map((minutes) => Number(minutes) || 0)
+          : [0, 0, 0, 0, 0, 0, 0],
         podName: res?.podName || res?.geofenceId || null,
         podLat: res?.podLat || res?.geofenceLat || null,
         podLng: res?.podLng || res?.geofenceLng || null,
