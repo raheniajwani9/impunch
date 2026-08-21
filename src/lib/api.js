@@ -177,6 +177,7 @@ export const api = {
         breaksTaken: Number(res?.breaksTaken) || 0,
         breaksRemaining: res?.breaksRemaining ?? null,
         maxBreaksReached: Boolean(res?.maxBreaksReached),
+        sessionRevoked: Boolean(res?.sessionRevoked),
         todayMinutes: Number(res?.todayMinutes) || 0,
         todayBreakMinutes: Number(res?.todayBreakMinutes) || 0,
         weekMinutes: Number(res?.weekMinutes) || 0,
@@ -251,5 +252,27 @@ export const api = {
       lng,
       requestedGeofenceId,
     ])
+  },
+  
+  async heartbeat(lat, lng) {
+    const session = getSession()
+    const token = session?.token || ''
+
+    if (!token) {
+      return { success: false, sessionRevoked: false, hasActiveShift: false }
+    }
+
+    try {
+      const res = await runBackendFunction('heartbeat', [token, lat, lng])
+      return {
+        success: res?.success !== false,
+        sessionRevoked: Boolean(res?.sessionRevoked),
+        hasActiveShift: Boolean(res?.hasActiveShift),
+        isOutOfBounds: Boolean(res?.isOutOfBounds),
+      }
+    } catch (err) {
+      console.warn('heartbeat API error:', err)
+      return { success: false, sessionRevoked: false, hasActiveShift: false }
+    }
   },
 }

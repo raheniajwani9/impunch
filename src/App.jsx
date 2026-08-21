@@ -15,7 +15,7 @@ const APP_STATE = {
   READY: 'READY',
 }
 
-const OUT_OF_BOUNDS_LIMIT_MS = 30 * 60 * 1000 // 30 minutes
+const OUT_OF_BOUNDS_LIMIT_MS = 30 * 60 * 1000 
 
 function getCurrentCoordinates() {
   return new Promise((resolve, reject) => {
@@ -25,7 +25,7 @@ function getCurrentCoordinates() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => {
         if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
           navigator.geolocation.getCurrentPosition(
@@ -179,7 +179,7 @@ export default function App() {
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
         const now = Date.now()
-        if (now - lastCheckTimeRef.current < 60000) return
+        if (now - lastCheckTimeRef.current < 15000) return // Check every 15s
         lastCheckTimeRef.current = now
 
         const currentLat = pos.coords.latitude
@@ -193,7 +193,7 @@ export default function App() {
 
             if (!firstOobTime) {
               localStorage.setItem('oob_start_time', now.toString())
-              addToast('warning', 'You left the POD area. 30 min auto-logout timer started.')
+              addToast('warning', 'Away from POD area. 30 min auto-logout timer started.')
             } else {
               const durationAway = now - parseInt(firstOobTime, 10)
 
@@ -235,7 +235,7 @@ export default function App() {
         localStorage.removeItem('oob_start_time')
         triggerAutoPunchOutAndLogout(0, 0, 'Auto-punched out: Away from POD for over 30 minutes.')
       }
-    }, 30000)
+    }, 10000)
 
     return () => clearInterval(timerId)
   }, [appState, isProcessingExit, triggerAutoPunchOutAndLogout])
@@ -263,7 +263,6 @@ export default function App() {
 
       {isReady && (
         <>
-          {/* Main View: Admin Console or Agent Dashboard */}
           <div style={{ display: page === 'dashboard' ? 'block' : 'none' }}>
             {isAdminOrSuper ? (
               <AdminDashboard 

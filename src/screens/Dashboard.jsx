@@ -29,6 +29,8 @@ export function DashboardSkeleton() {
 
 const EMPTY_BREAKDOWN = [0, 0, 0, 0, 0, 0, 0]
 const MAX_BREAKS_PER_SHIFT = 3
+const SYNC_INTERVAL_MS = 15 * 1000 
+const BREAK_LIMIT_MS = 30 * 60 * 1000 
 
 function formatDuration(totalMinutes = 0) {
   const minutes = Math.max(0, Math.floor(Number(totalMinutes) || 0))
@@ -79,7 +81,7 @@ function MetricCard({ label, value, detail, accent = 'blue' }) {
   )
 }
 
-export default function Dashboard({ onLogout, onNavigate }) {
+export default function Dashboard({ onLogout, onNavigate, addToast }) {
   const [status, setStatus] = useState({
     dutyStatus: 'punched_out', 
     punchedAt: null,
@@ -111,6 +113,75 @@ export default function Dashboard({ onLogout, onNavigate }) {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      runPeriodicSync()
+    }, SYNC_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (status?.dutyStatus !== 'on_break' || !status?.breakStartedAt) return
+
+    const breakTimer = setInterval(async () => {
+      const elapsedBreakTime = Date.now() - new Date(status.breakStartedAt).getTime()
+
+      if (elapsedBreakTime >= BREAK_LIMIT_MS) {
+        clearInterval(breakTimer)
+        if (addToast) addToast('error', 'Break limit of 30 minutes exceeded. Auto-punching out...')
+        
+        try {
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              async (pos) => {
+                await api.punch('punch_out', pos.coords.latitude, pos.coords.longitude, null)
+                clearSession()
+                if (onLogout) onLogout()
+              },
+              async () => {
+                await api.punch('punch_out', 0, 0, null)
+                clearSession()
+                if (onLogout) onLogout()
+              }
+            )
+          } else {
+            await api.punch('punch_out', 0, 0, null)
+            clearSession()
+            if (onLogout) onLogout()
+          }
+        } catch (err) {
+          clearSession()
+          if (onLogout) onLogout()
+        }
+      }
+    }, 3000)
+
+    return () => clearInterval(breakTimer)
+  }, [status?.dutyStatus, status?.breakStartedAt, onLogout, addToast])
+
+  const applyStatusResponse = (statusRes) => {
+    setStatus({
+      dutyStatus: statusRes.dutyStatus || 'punched_out',
+      punchedAt: statusRes.punchedAt || null,
+      breakStartedAt: statusRes.breakStartedAt || null,
+      breaksTaken: statusRes.breaksTaken || 0,
+      breaksRemaining: statusRes.breaksRemaining ?? MAX_BREAKS_PER_SHIFT,
+      maxBreaksReached: Boolean(statusRes.maxBreaksReached),
+      todayMinutes: statusRes.todayMinutes || 0,
+      todayBreakMinutes: statusRes.todayBreakMinutes || 0,
+      weekMinutes: statusRes.weekMinutes || 0,
+      todayPunchCount: statusRes.todayPunchCount || 0,
+      weeklyBreakdown: statusRes.weeklyBreakdown || EMPTY_BREAKDOWN,
+    })
+    setLastUpdated(new Date())
+  }
+
+  const handleForcedLogout = () => {
+    clearSession()
+    setError('You have been away or on break for over 30 minutes. Session ended.')
+    if (onLogout) onLogout()
+  }
+
   const loadDashboardData = async () => {
     setLoading(true)
     setError(null)
@@ -118,21 +189,13 @@ export default function Dashboard({ onLogout, onNavigate }) {
     try {
       const statusRes = await api.getStatus()
 
+      if (statusRes?.sessionRevoked) {
+        handleForcedLogout()
+        return
+      }
+
       if (statusRes && typeof statusRes === 'object') {
-        setStatus({
-          dutyStatus: statusRes.dutyStatus || 'punched_out',
-          punchedAt: statusRes.punchedAt || null,
-          breakStartedAt: statusRes.breakStartedAt || null,
-          breaksTaken: statusRes.breaksTaken || 0,
-          breaksRemaining: statusRes.breaksRemaining ?? MAX_BREAKS_PER_SHIFT,
-          maxBreaksReached: Boolean(statusRes.maxBreaksReached),
-          todayMinutes: statusRes.todayMinutes || 0,
-          todayBreakMinutes: statusRes.todayBreakMinutes || 0,
-          weekMinutes: statusRes.weekMinutes || 0,
-          todayPunchCount: statusRes.todayPunchCount || 0,
-          weeklyBreakdown: statusRes.weeklyBreakdown || EMPTY_BREAKDOWN,
-        })
-        setLastUpdated(new Date())
+        applyStatusResponse(statusRes)
       } else {
         throw new Error('Invalid dashboard response.')
       }
@@ -142,6 +205,48 @@ export default function Dashboard({ onLogout, onNavigate }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const silentRefreshStatus = async () => {
+    try {
+      const statusRes = await api.getStatus()
+      if (statusRes?.sessionRevoked) {
+        handleForcedLogout()
+        return
+      }
+      if (statusRes && typeof statusRes === 'object') {
+        applyStatusResponse(statusRes)
+      }
+    } catch (err) {
+      console.warn('Silent status refresh failed:', err)
+    }
+  }
+
+  const runPeriodicSync = () => {
+    if (!navigator.geolocation) {
+      silentRefreshStatus()
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords
+        try {
+          const hb = await api.heartbeat(latitude, longitude)
+          if (hb?.sessionRevoked) {
+            handleForcedLogout()
+            return
+          }
+        } catch (err) {
+          console.warn('Heartbeat failed:', err)
+        }
+        await silentRefreshStatus()
+      },
+      () => {
+        silentRefreshStatus()
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
   }
 
   const handleAction = async (actionType) => {
