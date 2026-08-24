@@ -10,6 +10,17 @@ function GaugeIcon({ active }) {
   )
 }
 
+function DashboardIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" stroke={active ? '#0050FF' : 'currentColor'} strokeWidth="1.8" />
+    </svg>
+  )
+}
+
 function HistoryIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
@@ -21,7 +32,8 @@ function HistoryIcon({ active }) {
 
 export default function NavBar({ page, onNavigate }) {
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', Icon: GaugeIcon },
+    { id: 'punch', label: 'Punch', Icon: GaugeIcon },
+    { id: 'dashboard', label: 'Dashboard', Icon: DashboardIcon },
     { id: 'history', label: 'History', Icon: HistoryIcon },
   ]
 

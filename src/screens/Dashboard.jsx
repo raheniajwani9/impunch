@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, clearSession, getSession } from '../lib/api'
-import PunchGauge from '../components/PunchGauge'
 import Header from '../components/Header'
 
 export function DashboardSkeleton() {
@@ -81,7 +80,7 @@ function MetricCard({ label, value, detail, accent = 'blue' }) {
   )
 }
 
-export default function Dashboard({ onLogout, onNavigate, addToast }) {
+export default function Dashboard({ onLogout, onNavigate, addToast, triggerAutoPunchOutAndLogout }) {
   const [status, setStatus] = useState({
     dutyStatus: 'punched_out', 
     punchedAt: null,
@@ -123,41 +122,39 @@ export default function Dashboard({ onLogout, onNavigate, addToast }) {
   useEffect(() => {
     if (status?.dutyStatus !== 'on_break' || !status?.breakStartedAt) return
 
-    const breakTimer = setInterval(async () => {
+    const breakTimer = setInterval(() => {
       const elapsedBreakTime = Date.now() - new Date(status.breakStartedAt).getTime()
 
       if (elapsedBreakTime >= BREAK_LIMIT_MS) {
         clearInterval(breakTimer)
-        if (addToast) addToast('error', 'Break limit of 30 minutes exceeded. Auto-punching out...')
-        
-        try {
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              async (pos) => {
-                await api.punch('punch_out', pos.coords.latitude, pos.coords.longitude, null)
-                clearSession()
-                if (onLogout) onLogout()
-              },
-              async () => {
-                await api.punch('punch_out', 0, 0, null)
-                clearSession()
-                if (onLogout) onLogout()
-              }
-            )
+        if (addToast) addToast('error', '30-minute break limit exceeded. Session ending...')
+
+        const reason = 'Break limit of 30 minutes exceeded.'
+
+        const executeExit = (lat = 0, lng = 0) => {
+          if (typeof triggerAutoPunchOutAndLogout === 'function') {
+            triggerAutoPunchOutAndLogout(lat, lng, reason)
           } else {
-            await api.punch('punch_out', 0, 0, null)
-            clearSession()
-            if (onLogout) onLogout()
+            api.punch('punch_out', lat, lng, null).catch(console.error).finally(() => {
+              clearSession()
+              if (onLogout) onLogout()
+            })
           }
-        } catch (err) {
-          clearSession()
-          if (onLogout) onLogout()
+        }
+
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => executeExit(pos.coords.latitude, pos.coords.longitude),
+            () => executeExit(0, 0)
+          )
+        } else {
+          executeExit(0, 0)
         }
       }
-    }, 3000)
+    }, 10000)
 
     return () => clearInterval(breakTimer)
-  }, [status?.dutyStatus, status?.breakStartedAt, onLogout, addToast])
+  }, [status?.dutyStatus, status?.breakStartedAt, triggerAutoPunchOutAndLogout, addToast, onLogout])
 
   const applyStatusResponse = (statusRes) => {
     setStatus({
@@ -249,43 +246,6 @@ export default function Dashboard({ onLogout, onNavigate, addToast }) {
     )
   }
 
-  const handleAction = async (actionType) => {
-    setActionLoading(true)
-    setError(null)
-
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your device.')
-      setActionLoading(false)
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-
-        try {
-          const res = await api.punch(actionType, lat, lng, null)
-          if (res?.success) {
-            await loadDashboardData()
-          } else {
-            setError(res?.error || 'Action failed.')
-          }
-        } catch (err) {
-          setError(err?.message || 'Failed to submit action.')
-        } finally {
-          setActionLoading(false)
-        }
-      },
-      (geoErr) => {
-        console.error('Geolocation error:', geoErr)
-        setError('Location permission required. Please enable GPS.')
-        setActionLoading(false)
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
-    )
-  }
-
   const handleSignOut = () => {
     clearSession()
     if (onLogout) onLogout()
@@ -293,9 +253,6 @@ export default function Dashboard({ onLogout, onNavigate, addToast }) {
 
   const isPunchedIn = status?.dutyStatus === 'punched_in'
   const isOnBreak = status?.dutyStatus === 'on_break'
-  const breaksTaken = Number(status?.breaksTaken) || 0
-  const breaksRemaining = Number(status?.breaksRemaining ?? MAX_BREAKS_PER_SHIFT)
-  const maxBreaksReached = Boolean(status?.maxBreaksReached)
   const weekLabels = useMemo(() => getWeekLabels(), [])
   const todayIdx = useMemo(() => getTodayIndex(), [])
   const weeklyBreakdown = status?.weeklyBreakdown?.length === 7 ? status.weeklyBreakdown : EMPTY_BREAKDOWN
@@ -321,8 +278,6 @@ export default function Dashboard({ onLogout, onNavigate, addToast }) {
     () => Math.max(60, ...effectiveWeeklyBreakdown),
     [effectiveWeeklyBreakdown]
   )
-
-  const canStartBreak = isPunchedIn && !isOnBreak && !maxBreaksReached
 
   if (loading) return <DashboardSkeleton />
 
@@ -429,73 +384,6 @@ export default function Dashboard({ onLogout, onNavigate, addToast }) {
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="bg-white dark:bg-[#181E25] border border-[#0050FF]/15 dark:border-[#28313D] rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden flex flex-col items-center">
-          <div className="mb-3 flex items-center justify-center space-x-2">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isOnBreak
-                  ? 'bg-amber-500 animate-pulse'
-                  : isPunchedIn
-                  ? 'bg-emerald-500 animate-ping'
-                  : 'bg-[#FF5200]'
-              }`}
-            />
-            <span className="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-slate-300">
-              {isOnBreak ? 'ON BREAK' : isPunchedIn ? 'ON DUTY • ACTIVE' : 'OFF DUTY'}
-            </span>
-          </div>
-
-          <PunchGauge
-            state={actionLoading ? 'locating' : isOnBreak ? 'off' : isPunchedIn ? 'on' : 'off'}
-            onPress={() => {
-              if (isOnBreak) handleAction('end_break')
-              else if (isPunchedIn) handleAction('punch_out')
-              else handleAction('punch_in')
-            }}
-            label={isOnBreak ? 'Resume Work' : isPunchedIn ? 'Punch Out' : 'Punch In'}
-          />
-
-          <div className="mt-4 flex items-center gap-3">
-            {canStartBreak && (
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleAction('start_break')}
-                className="px-6 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs font-black hover:bg-amber-500/20 disabled:opacity-50 transition"
-              >
-                Start Break ({breaksRemaining} left)
-              </button>
-            )}
-
-            {isOnBreak && (
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleAction('punch_out')}
-                className="px-6 py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 text-xs font-black hover:bg-red-500/20 disabled:opacity-50 transition"
-              >
-                Punch Out Directly
-              </button>
-            )}
-          </div>
-
-          {isPunchedIn && !isOnBreak && (
-            <p className="mt-3 text-[11px] font-semibold text-slate-400">
-              {maxBreaksReached
-                ? `All ${MAX_BREAKS_PER_SHIFT} breaks used for this shift.`
-                : `${breaksTaken} of ${MAX_BREAKS_PER_SHIFT} breaks used this shift.`}
-            </p>
-          )}
-
-          <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            {isOnBreak
-              ? `Break started ${new Date(status.breakStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${formatDuration(liveBreakMinutes)} elapsed)`
-              : isPunchedIn
-              ? `Shift started ${new Date(status.punchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${formatDuration(liveActiveMinutes)} elapsed)`
-              : 'Ready when you are'}
-          </p>
         </section>
 
         {lastUpdated && (
