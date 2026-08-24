@@ -175,9 +175,6 @@ export default function History({ onLogout, onNavigate }) {
             <h2 className="text-lg font-black tracking-wide text-[#0050FF]">
               SHIFT <span className="text-[#FF5200]">HISTORY</span>
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Complete Field Attendance Trail {totalRecords > 0 && `(${totalRecords} total)`}
-            </p>
           </div>
           <button
             onClick={() => fetchInitialData(page)}
