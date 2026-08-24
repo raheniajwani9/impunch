@@ -174,6 +174,7 @@ export const api = {
         dutyStatus: res?.dutyStatus || 'punched_out',
         punchedAt: res?.punchedAt || null,
         breakStartedAt: res?.breakStartedAt || null,
+        oobStartedAt: res?.oobStartedAt || null,
         breaksTaken: Number(res?.breaksTaken) || 0,
         breaksRemaining: res?.breaksRemaining ?? null,
         maxBreaksReached: Boolean(res?.maxBreaksReached),

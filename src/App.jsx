@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import Login from './screens/Login'
 import Dashboard, { DashboardSkeleton } from './screens/Dashboard'
+import PunchScreen from './screens/PunchScreen'
 import AdminDashboard from './screens/AdminDashboard'
 import Profile from './screens/Profile'
 import History from './screens/History' 
@@ -44,14 +45,24 @@ function getCurrentCoordinates() {
 
 export default function App() {
   const [appState, setAppState] = useState(APP_STATE.CHECKING_SESSION)
-  const [page, setPage] = useState('dashboard')
+  const [page, setPage] = useState('punch')
   const [user, setUser] = useState(null)
   const [userRole, setUserRole] = useState('user')
-  const [dutyStatus, setDutyStatus] = useState('punched_out')
-  const [punchedAt, setPunchedAt] = useState(null)
+  const [status, setStatus] = useState({
+    dutyStatus: 'punched_out',
+    punchedAt: null,
+    breakStartedAt: null,
+    oobStartedAt: null,
+    breaksTaken: 0,
+    breaksRemaining: 3,
+    maxBreaksReached: false,
+    isOutOfBounds: false,
+  })
+  const [actionLoading, setActionLoading] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [toasts, setToasts] = useState([])
   const [isProcessingExit, setIsProcessingExit] = useState(false)
+  const [now, setNow] = useState(Date.now())
   
   const lastCheckTimeRef = useRef(0)
 
@@ -60,6 +71,11 @@ export default function App() {
     if (savedTheme !== null) return savedTheme === 'dark'
     return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
   })
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     const root = document.documentElement
@@ -88,7 +104,7 @@ export default function App() {
   function handleSignOut() {
     localStorage.removeItem('oob_start_time')
     clearSession()
-    setPage('dashboard')
+    setPage('punch')
     setAppState(APP_STATE.AUTH)
     setIsProcessingExit(false)
     setUserRole('user')
@@ -131,46 +147,98 @@ export default function App() {
   }, [])
 
   async function loadDashboard(session) {
-    setAppState(APP_STATE.INITIALIZING)
+  setAppState(APP_STATE.INITIALIZING)
+  
+  let coords = { lat: 0, lng: 0 }
+  try {
+    coords = await getCurrentCoordinates()
+  } catch (locErr) {
+    addToast('warning', locErr.message || 'Proceeding without high-accuracy GPS.')
+  }
+
+  try {
+    const resStatus = await api.getStatus(coords.lat, coords.lng)
+    const userEmail = session?.user?.email || session?.email || ''
+    const role = String(resStatus?.role || session?.user?.role || session?.role || 'user').trim().toLowerCase()
     
-    let coords = { lat: 0, lng: 0 }
-    try {
-      coords = await getCurrentCoordinates()
-    } catch (locErr) {
-      addToast('warning', locErr.message || 'Proceeding without high-accuracy GPS.')
+    setUserRole(role)
+    // Clean, un-nested user object
+    setUser({ email: userEmail, role: role })
+
+    // Redirect admins directly to the dashboard tab instead of 'punch'
+    const isAdmin = role === 'admin' || role === 'superadmin'
+    if (isAdmin) {
+      setPage('dashboard')
     }
 
-    try {
-      const status = await api.getStatus(coords.lat, coords.lng)
-      const userEmail = session?.user?.email || session?.email || ''
-      const role = String(status?.role || session?.user?.role || session?.role || 'user').trim().toLowerCase()
-      
-      setUserRole(role)
-      setUser({ email: userEmail, role: role, user: { email: userEmail, role: role } })
-      
-      setDutyStatus(status?.dutyStatus || 'punched_out')
-      setPunchedAt(status?.punchedAt || null)
+    setStatus({
+      dutyStatus: resStatus?.dutyStatus || 'punched_out',
+      punchedAt: resStatus?.punchedAt || null,
+      breakStartedAt: resStatus?.breakStartedAt || null,
+      oobStartedAt: resStatus?.oobStartedAt || null,
+      breaksTaken: resStatus?.breaksTaken || 0,
+      breaksRemaining: resStatus?.breaksRemaining ?? 3,
+      maxBreaksReached: Boolean(resStatus?.maxBreaksReached),
+      isOutOfBounds: Boolean(resStatus?.isOutOfBounds),
+    })
 
-      if (status?.isOutOfBounds || status?.podName === 'OUT_OF_BOUNDS') {
-        addToast('error', 'You are currently away from your assigned POD.')
-      }
+    if (resStatus?.isOutOfBounds || resStatus?.podName === 'OUT_OF_BOUNDS') {
+      addToast('error', 'You are currently away from your assigned POD.')
+    }
 
+    setAppState(APP_STATE.READY)
+  } catch (err) {
+    const errMsg = String(err?.message || '').toLowerCase()
+    
+    if (errMsg.includes('session') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('expired')) {
+      clearSession()
+      localStorage.removeItem('oob_start_time')
+      setUser(null)
+      setUserRole('user')
+      setAppState(APP_STATE.AUTH)
+      addToast('warning', 'Session expired. Please log in with a new OTP.')
+    } else {
+      addToast('error', err?.message || 'Could not load dashboard status.')
       setAppState(APP_STATE.READY)
-    } catch (err) {
-      const errMsg = String(err?.message || '').toLowerCase()
-      
-      if (errMsg.includes('session') || errMsg.includes('token') || errMsg.includes('unauthorized') || errMsg.includes('expired')) {
-        clearSession()
-        localStorage.removeItem('oob_start_time')
-        setUser(null)
-        setUserRole('user')
-        setAppState(APP_STATE.AUTH)
-        addToast('warning', 'Session expired. Please log in with a new OTP.')
-      } else {
-        addToast('error', err?.message || 'Could not load dashboard status.')
-        setAppState(APP_STATE.READY)
-      }
     }
+  }
+}
+
+  const handleAction = async (actionType) => {
+    setActionLoading(true)
+
+    if (!navigator.geolocation) {
+      addToast('error', 'Geolocation is not supported by your device.')
+      setActionLoading(false)
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+
+        try {
+          const res = await api.punch(actionType, lat, lng, null)
+          if (res?.success) {
+            const session = getSession()
+            await loadDashboard(session)
+          } else {
+            addToast('error', res?.error || 'Action failed.')
+          }
+        } catch (err) {
+          addToast('error', err?.message || 'Failed to submit action.')
+        } finally {
+          setActionLoading(false)
+        }
+      },
+      (geoErr) => {
+        console.error('Geolocation error:', geoErr)
+        addToast('error', 'Location permission required. Please enable GPS.')
+        setActionLoading(false)
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    )
   }
 
   useEffect(() => {
@@ -178,9 +246,9 @@ export default function App() {
 
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
-        const now = Date.now()
-        if (now - lastCheckTimeRef.current < 15000) return // Check every 15s
-        lastCheckTimeRef.current = now
+        const nowTime = Date.now()
+        if (nowTime - lastCheckTimeRef.current < 15000) return
+        lastCheckTimeRef.current = nowTime
 
         const currentLat = pos.coords.latitude
         const currentLng = pos.coords.longitude
@@ -192,10 +260,10 @@ export default function App() {
             const firstOobTime = localStorage.getItem('oob_start_time')
 
             if (!firstOobTime) {
-              localStorage.setItem('oob_start_time', now.toString())
+              localStorage.setItem('oob_start_time', nowTime.toString())
               addToast('warning', 'Away from POD area. 30 min auto-logout timer started.')
             } else {
-              const durationAway = now - parseInt(firstOobTime, 10)
+              const durationAway = nowTime - parseInt(firstOobTime, 10)
 
               if (durationAway >= OUT_OF_BOUNDS_LIMIT_MS) {
                 localStorage.removeItem('oob_start_time')
@@ -206,7 +274,6 @@ export default function App() {
                 )
               } else {
                 const minutesLeft = Math.ceil((OUT_OF_BOUNDS_LIMIT_MS - durationAway) / 60000)
-                addToast('warning', `Away from POD. Forced logout in ${minutesLeft} mins.`)
               }
             }
           } else {
@@ -223,23 +290,6 @@ export default function App() {
     return () => navigator.geolocation.clearWatch(watchId)
   }, [appState, isProcessingExit, addToast, triggerAutoPunchOutAndLogout])
 
-  useEffect(() => {
-    if (appState !== APP_STATE.READY || isProcessingExit) return
-
-    const timerId = setInterval(() => {
-      const firstOobTime = localStorage.getItem('oob_start_time')
-      if (!firstOobTime) return
-
-      const durationAway = Date.now() - parseInt(firstOobTime, 10)
-      if (durationAway >= OUT_OF_BOUNDS_LIMIT_MS) {
-        localStorage.removeItem('oob_start_time')
-        triggerAutoPunchOutAndLogout(0, 0, 'Auto-punched out: Away from POD for over 30 minutes.')
-      }
-    }, 10000)
-
-    return () => clearInterval(timerId)
-  }, [appState, isProcessingExit, triggerAutoPunchOutAndLogout])
-
   function handleAuthenticated() {
     const session = getSession()
     loadDashboard(session)
@@ -248,6 +298,21 @@ export default function App() {
   const handleToggleTheme = () => setIsDark((prev) => !prev)
   const isReady = appState === APP_STATE.READY
   const isAdminOrSuper = userRole === 'admin' || userRole === 'superadmin'
+
+  const formatDuration = (totalMinutes = 0) => {
+    const minutes = Math.max(0, Math.floor(Number(totalMinutes) || 0))
+    const hours = Math.floor(minutes / 60)
+    const remainder = minutes % 60
+    return `${hours}h ${String(remainder).padStart(2, '0')}m`
+  }
+
+  const liveActiveMinutes = status?.dutyStatus === 'punched_in' && status?.punchedAt
+    ? Math.floor(Math.max(0, now - new Date(status.punchedAt).getTime()) / 60000)
+    : 0
+
+  const liveBreakMinutes = status?.dutyStatus === 'on_break' && status?.breakStartedAt
+    ? Math.floor(Math.max(0, now - new Date(status.breakStartedAt).getTime()) / 60000)
+    : 0
 
   return (
     <div className="min-h-screen bg-[#FDF5EE] dark:bg-[#0E1217] text-slate-900 dark:text-slate-100 transition-colors">
@@ -263,6 +328,20 @@ export default function App() {
 
       {isReady && (
         <>
+          <div style={{ display: page === 'punch' ? 'block' : 'none' }}>
+            <PunchScreen
+              status={status}
+              actionLoading={actionLoading}
+              handleAction={handleAction}
+              liveActiveMinutes={liveActiveMinutes}
+              liveBreakMinutes={liveBreakMinutes}
+              formatDuration={formatDuration}
+              userEmail={user?.email}
+              onLogout={handleSignOut}
+              onNavigate={setPage}
+            />
+          </div>
+
           <div style={{ display: page === 'dashboard' ? 'block' : 'none' }}>
             {isAdminOrSuper ? (
               <AdminDashboard 
@@ -274,11 +353,10 @@ export default function App() {
             ) : (
               <Dashboard
                 user={user}
-                initialDutyStatus={dutyStatus}
-                initialPunchedAt={punchedAt}
                 addToast={addToast}
                 onLogout={handleSignOut}
                 onNavigate={setPage}
+                triggerAutoPunchOutAndLogout={triggerAutoPunchOutAndLogout}
               />
             )}
           </div>
