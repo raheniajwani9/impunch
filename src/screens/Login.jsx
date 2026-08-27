@@ -53,13 +53,39 @@ export default function Login({ onAuthenticated }) {
     }
   }
 
-  async function handleVerifyOtp(e) {
+ async function handleVerifyOtp(e) {
     e.preventDefault()
     if (code.length !== 6) return
     setSub(AUTH_SUB.LOADING_AUTH)
+
+    let lat = null
+    let lng = null
+
     try {
-      const { token, user } = await api.verifyOtp(email.trim(), code)
-      setSession({ token, email: user?.email || email })
+      if (navigator.geolocation) {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            resolve,
+            (err) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: false,
+                timeout: 10000,
+                maximumAge: 60000,
+              })
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+          )
+        })
+        lat = position.coords.latitude
+        lng = position.coords.longitude
+      }
+    } catch (geoErr) {
+      console.warn('Geolocation capture failed on login:', geoErr.message)
+    }
+
+    try {
+      const { token, user } = await api.verifyOtp(email.trim(), code, lat, lng)
+      setSession({ token, email: user?.email || email, role: user?.role })
       onAuthenticated()
     } catch (err) {
       setError(err.message || 'Invalid code. Try again.')
