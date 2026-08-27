@@ -33,7 +33,8 @@ export function setSession(sessionData) {
 
 export function clearSession() {
   try {
-    localStorage.removeItem(SESSION_KEY)
+    localStorage.clear()
+    sessionStorage.clear()
   } catch (err) {}
 }
 
@@ -87,8 +88,8 @@ export const api = {
     return await runBackendFunction('sendOtp', [email])
   },
 
-  async verifyOtp(email, code) {
-    const res = await runBackendFunction('verifyOtp', [email, code])
+  async verifyOtp(email, code,lat = null, lng = null) {
+    const res = await runBackendFunction('verifyOtp', [email, code, lat, lng])
     if (res && res.token) {
       const extractedRole = res.user?.role || res.role || 'user'
       setSession({
@@ -99,6 +100,23 @@ export const api = {
       })
     }
     return res
+  },
+
+  async punch(action, lat, lng, requestedGeofenceId = null) {
+    const session = getSession()
+    const token = session?.token || ''
+
+    if (!token) {
+      throw new Error('Session expired. Please log in again.')
+    }
+
+    return await runBackendFunction('punch', [
+      token,
+      action,
+      lat,
+      lng,
+      requestedGeofenceId,
+    ])
   },
 
   async getAllUsers() {
